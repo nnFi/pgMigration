@@ -53,6 +53,7 @@ Thumbs.db
 .env
 logs/
 *.log
+*.json
 
 # pytest
 .pytest_cache/

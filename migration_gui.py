@@ -22,6 +22,9 @@ from PyQt6.QtGui import QFont, QTextCursor, QIcon
 import json
 from PyQt6.QtWidgets import QDialog, QPushButton, QVBoxLayout, QHBoxLayout, QTextEdit, QLabel
 
+# Importiere Collations Manager
+from collations_manager import ensure_collations_config
+
 
 class MigrationWorker(QThread):
     """Worker Thread für Migration um UI nicht zu blockieren"""
@@ -138,6 +141,9 @@ class MigrationGUI(QMainWindow):
         
         # UI aufbauen
         self.setup_ui()
+        
+        # Erstelle collations_config.json falls nicht vorhanden
+        ensure_collations_config(self.work_path)
         
         # Lade .env falls vorhanden
         self.load_env()
@@ -327,9 +333,13 @@ class MigrationGUI(QMainWindow):
         save_log_btn.clicked.connect(self.save_debug_logs)
         view_mapping_btn = QPushButton("📋 Column Mapping anzeigen")
         view_mapping_btn.clicked.connect(self.view_column_mapping)
+        collations_btn = QPushButton("⚙️ Collations konfigurieren")
+        collations_btn.clicked.connect(self.edit_collations_config)
+        collations_btn.setToolTip("Öffne die collations_config.json Datei zum Bearbeiten")
         log_btn_layout.addWidget(clear_btn)
         log_btn_layout.addWidget(save_log_btn)
         log_btn_layout.addWidget(view_mapping_btn)
+        log_btn_layout.addWidget(collations_btn)
         log_btn_layout.addStretch()
         log_layout.addLayout(log_btn_layout)
         
@@ -895,6 +905,37 @@ class MigrationGUI(QMainWindow):
                 "Verbindungsfehler",
                 f"PostgreSQL Verbindung fehlgeschlagen:\n\n{str(e)}\n\nBitte prüfen Sie:\n• Server läuft?\n• Credentials korrekt?\n• Firewall/Port offen?"
             )
+    
+    def edit_collations_config(self):
+        """Öffne die collations_config.json zum Bearbeiten"""
+        config_file = self.work_path / "collations_config.json"
+        
+        if not config_file.exists():
+            QMessageBox.warning(
+                self,
+                "Datei nicht gefunden",
+                f"collations_config.json nicht gefunden in:\n{self.work_path}"
+            )
+            return
+        
+        try:
+            # Öffne Datei mit Standard-Editor
+            import subprocess
+            if sys.platform == 'win32':
+                os.startfile(config_file)
+            elif sys.platform == 'darwin':  # macOS
+                subprocess.Popen(['open', config_file])
+            else:  # Linux
+                subprocess.Popen(['xdg-open', config_file])
+            
+            self.log(f"Öffne: {config_file}")
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Fehler",
+                f"Fehler beim Öffnen der Datei:\n{str(e)}"
+            )
+            self.log(f"Fehler beim Öffnen von {config_file}: {str(e)}")
 
 
 def main():

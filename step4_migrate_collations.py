@@ -76,6 +76,30 @@ def print_summary(msg):
 # Lade Umgebungsvariablen
 load_dotenv()
 
+# Lade Collations Konfiguration
+def load_collations_config():
+    """Lade Collations Mapping aus collations_config.json"""
+    from pathlib import Path
+    config_file = Path('collations_config.json')
+    
+    if config_file.exists():
+        try:
+            with open(config_file, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            print_summary(f"Collations Konfiguration geladen: {config_file}")
+            return config.get('collations', {})
+        except Exception as e:
+            print_detail(f"Fehler beim Laden von {config_file}: {e}", level='WARNING')
+            print_detail("Nutze Standard Collations Mapping", level='INFO')
+            return {}
+    else:
+        print_detail(f"Datei nicht gefunden: {config_file}", level='INFO')
+        print_detail("Nutze Standard Collations Mapping", level='INFO')
+        return {}
+
+# Lade Konfiguration oder nutze Standards
+CUSTOM_COLLATIONS = load_collations_config()
+
 # MSSQL Konfiguration
 MSSQL_SERVER = os.getenv('MSSQL_SERVER')
 MSSQL_PORT = os.getenv('MSSQL_PORT', '')
@@ -99,7 +123,7 @@ def normalize_name(name):
 
 # Mapping von MSSQL Collations zu PostgreSQL Collations
 # Mehrere Optionen pro MSSQL-Collation, erste verfügbare wird verwendet
-COLLATION_MAPPING = {
+DEFAULT_COLLATION_MAPPING = {
     'SQL_Latin1_General_CP1_CI_AS': ['de-DE-x-icu', 'de_DE.utf8', 'de_DE', 'en-US-x-icu', 'en_US.utf8', 'C.UTF-8', 'default'],
     'Latin1_General_CI_AS': ['de-DE-x-icu', 'de_DE.utf8', 'de_DE', 'en-US-x-icu', 'en_US.utf8', 'C.UTF-8', 'default'],
     'SQL_Latin1_General_CP1_CS_AS': ['C'],
@@ -107,6 +131,9 @@ COLLATION_MAPPING = {
     'German_PhoneBook_CI_AS': ['de-DE-x-icu', 'de_DE.utf8', 'de_DE', 'default'],
     'SQL_Latin1_General_CP850_CI_AS': ['de-DE-x-icu', 'de_DE.utf8', 'de_DE', 'en-US-x-icu', 'en_US.utf8', 'default'],
 }
+
+# Verwende Custom Mapping wenn vorhanden, sonst Default
+COLLATION_MAPPING = CUSTOM_COLLATIONS if CUSTOM_COLLATIONS else DEFAULT_COLLATION_MAPPING
 
 def connect_mssql():
     """Verbindung zu MSSQL herstellen"""
