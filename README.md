@@ -21,8 +21,6 @@ Professionelle Migrationsanwendung zur Konvertierung von Microsoft SQL Server Da
 ### Voraussetzungen
 
 - Python 3.8+
-- ODBC Driver 17 for SQL Server
-  - Download: https://learn.microsoft.com/sql/connect/odbc/download-odbc-driver-for-sql-server
 
 ### Setup
 
