@@ -104,9 +104,16 @@ python migration_gui.py
 - Column-Mapping Analyse anzeigen
 - JSON-Export mit Detailinformationen
 
+✅ **Collations konfigurieren** ⚙️
+- Button "⚙️ Collations konfigurieren" öffnet `collations_config.json`
+- Definieren Sie Ihr eigenes MSSQL → PostgreSQL Collations-Mapping
+- Automatische Konvertierung beim Start wenn nicht vorhanden
+- Step 4 nutzt automatisch Ihre Custom-Mappings
+
 ✅ **Sicherheit**
 - Warnung bei Einzelschritt-Ausführung (richtige Reihenfolge wichtig!)
 - Verbindungstests vor Migration
+- Optional: Step 4 (Collations) bei Migration überspringen
 
 ### Kommandozeile
 
@@ -138,7 +145,48 @@ python step4_migrate_collations.py  # Collations (optional)
 | **Constraints** | Primary Keys, Unique Constraints, Check Constraints |
 | **Foreign Keys** | Referentielle Integrität |
 | **Indizes** | Performance-Indizes |
-| **Collations** | Optional, kann manuelle Anpassung erfordern |
+| **Collations** | Optional, mappe MSSQL → PostgreSQL Collations |
+
+---
+
+## Collations Konfiguration
+
+Step 4 migriert Collations von MSSQL zu PostgreSQL. Die Mappings sind anpassbar:
+
+### Automatische Erstellung
+
+Beim ersten Start der GUI wird automatisch `collations_config.json` erstellt mit:
+- Standard MSSQL Collations (SQL_Latin1_General_CP1_CI_AS, etc.)
+- Fallback PostgreSQL Collations pro MSSQL Collation
+- Konfigurierbar und erweiterbar
+
+### Custom Mappings definieren
+
+1. **GUI Button:** Klicken Sie auf "⚙️ Collations konfigurieren"
+2. **Datei öffnet sich** in Ihrem Standard-Editor
+3. **Bearbeiten:** Passen Sie die Mappings an
+4. **Speichern:** Änderungen werden beim nächsten Run verwendet
+
+**Beispiel `collations_config.json`:**
+```json
+{
+  "collations": {
+    "SQL_Latin1_General_CP1_CI_AS": [
+      "de-DE-x-icu",
+      "de_DE.utf8",
+      "de_DE",
+      "default"
+    ],
+    "Latin1_General_CI_AS": ["en-US-x-icu", "default"],
+    "YOUR_CUSTOM_COLLATION": ["your-mapping"]
+  }
+}
+```
+
+**Vorgehensweise:**
+- Pro MSSQL Collation können mehrere PostgreSQL Optionen definiert werden
+- Die **erste verfügbare** wird automatisch verwendet
+- Mit "default" wird die DB-Standard-Collation genutzt
 
 ---
 
