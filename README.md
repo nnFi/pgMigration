@@ -245,7 +245,6 @@ Alle Komponenten wurden mit KI-Unterstützung entwickelt, einschließlich:
 - ✅ GUI-Oberfläche
 - ✅ Fehlerbehandlung
 - ✅ Dokumentation
-- ✅ Tests und Validierung
 
 ### Nutzung & Lizenz
 
