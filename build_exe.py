@@ -32,6 +32,12 @@ options = [
     "--hidden-import=psycopg2",
     "--hidden-import=psycopg2.extensions",
     "--hidden-import=dotenv",
+    # Hidden imports für neue GUI Module
+    "--hidden-import=gui_builder",
+    "--hidden-import=config_manager",
+    "--hidden-import=connection_tester",
+    "--hidden-import=dialogs",
+    "--hidden-import=collations_manager",
 ]
 
 # Füge Icon hinzu wenn vorhanden
