@@ -107,30 +107,6 @@ python migration_gui.py
 ✅ **Sicherheit**
 - Warnung bei Einzelschritt-Ausführung (richtige Reihenfolge wichtig!)
 - Verbindungstests vor Migration
-- Sprechende Fehlermeldungen
-
-#### GUI Screenshot
-
-```
-┌─────────────────────────────────────────┐
-│  MSSQL → PostgreSQL Migration Tool      │
-├─────────────────────────────────────────┤
-│                                         │
-│  [MSSQL Verbindung]  [PostgreSQL]      │
-│  Password: ******* [👁]  Password: ** [👁]│
-│  [Test Verbindung]                      │
-│                                         │
-│  [1️⃣ Tabellen] [2️⃣ Verify] [3️⃣ Keys]   │
-│  [▶️ ALLE SCHRITTE AUSFÜHREN]           │
-│  [████████░░] 80%                       │
-│                                         │
-│  ┌─ Migration Log ─────────────────┐  │
-│  │ [12:34:56] Verbindung OK...      │  │
-│  │ [12:34:57] Migriere Tabelle...   │  │
-│  └─────────────────────────────────┘  │
-│  [🗑️] [💾 Debug-Logs] [📋 Mapping]    │
-└─────────────────────────────────────────┘
-```
 
 ### Kommandozeile
 
@@ -217,25 +193,6 @@ USB:\MigrationTool\
 
 **Kein Python, kein pip, keine Installation erforderlich!**
 
-### Optionales Launcher-Script
-
-Für einfachere Bedienung können Sie eine `start.bat` erstellen:
-
-```batch
-@echo off
-cd /d "%~dp0"
-start MSSQL_PostgreSQL_Migration.exe
-```
-
-Dann einfach die `start.bat` doppelklicken statt die .exe.
-
-### Backup und Sicherung
-
-Da .exe, Konfiguration und Logs alle auf dem USB-Stick sind:
-- Stick kopieren = komplettes Backup
-- Alle Einstellungen und Protokolle bleiben beieinander
-- Kann auf mehreren Computern verwendet werden
-
 ---
 
 ## Logs und Debugging
@@ -253,15 +210,6 @@ logs/
 └── column_mapping.json      # Spalten-Konvertierungstabelle
 ```
 
-### Debug-Logs exportieren
-
-In der GUI können Sie über den "Debug-Logs" Button alle Protokolle exportieren und weitergeben:
-
-```bash
-# Exportiert: step1_debug.log, step2_debug.log, ... + column_mapping.json
-# Mit Zeitstempel versehen für Unterscheidung mehrerer Migrationen
-```
-
 ---
 
 ## Technische Details
@@ -277,39 +225,13 @@ In der GUI können Sie über den "Debug-Logs" Button alle Protokolle exportieren
 | **Threading** | QThread für nicht-blockierende Migration |
 | **Packaging** | PyInstaller für .exe-Erstellung |
 
-### Architektur
-
-- **Nicht-blockierende UI** - Migrations laufen in separatem Thread
-- **Echtzeit-Logging** - Output wird live angezeigt
-- **Fehlerbehandlung** - Robuste Exception-Handling mit Benutzer-Feedback
-- **Wiederholbarkeit** - Logs in separaten Verzeichnissen pro Lauf
-
-### Performance
-
-- Portable .exe Größe: ca. 50-70 MB (enthält Python Runtime)
-- Erste Start von USB: 10-20 Sekunden (normal danach)
-- Migrationsgeschwindigkeit abhängig von Datenmenge
-- Multi-Schritt-Verarbeitung mit Parallelisierung wo möglich
-
 ---
 
-## Hinweise & Best Practices
+## Wichtige Hinweise
 
-⚠️ **Vor Migration**
-- Erstellen Sie ein Backup der Quell-Datenbank
+- ⚠️ Erstellen Sie ein Backup der Quell-Datenbank
 - Testen Sie mit einer Test-Datenbank
-- Überprüfen Sie Datentyp-Kompatibilität
-
-💡 **Während Migration**
-- Lassen Sie andere Anwendungen nicht auf die MSSQL-Datenbank zugreifen
-- Achten Sie auf ausreichend Speicherplatz
-- Monitorieren Sie die Log-Dateien auf Warnungen
-
-✅ **Nach Migration**
-- Testen Sie die migrierte Datenbank gründlich
-- Überprüfen Sie Constraints und Beziehungen
-- Collations können manuelle Anpassung erfordern
-- Vergleichen Sie Datenbankgrößen und Datensätze
+- Die Schritte müssen in Reihenfolge ausgeführt werden
 
 ---
 
