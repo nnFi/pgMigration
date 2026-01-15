@@ -759,10 +759,10 @@ class MigrationGUI(QMainWindow):
             total_mappings = sum(len(cols) for cols in mapping_data.values())
             info_label = QLabel(
                 f"Column Mapping:\n"
-                f"• {len(mapping_data)} Tabelle(n) mit gekürzten Spaltennamen\n"
+                f"• {len(mapping_data)} Tabellen erfasst\n"
                 f"• {total_mappings} Spalte(n) gekürzt (>63 Zeichen)"
             )
-            info_label.setStyleSheet("font-weight: bold; padding: 10px; background-color: #E3F2FD;")
+            info_label.setStyleSheet("font-weight: bold; padding: 10px; background-color: #E3F2FD; color: #000000;")
             layout.addWidget(info_label)
             
             # Text-Editor für JSON
