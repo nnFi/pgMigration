@@ -338,7 +338,7 @@ def main():
         for mssql_coll in sorted(collation_groups.keys()):
             pg_coll = map_collation(mssql_coll, available_collations)
             count = len(collation_groups[mssql_coll])
-            available = "✓" if pg_coll in available_collations or pg_coll == 'C' or pg_coll == 'default' else "✗"
+            available = "Verfügbar" if pg_coll in available_collations or pg_coll == 'C' or pg_coll == 'default' else "Nicht verfügbar:"
             print_detail(f"{available} {mssql_coll} -> {pg_coll} ({count} Spalten)")
         print_detail("")
         
