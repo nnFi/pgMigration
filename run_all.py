@@ -171,6 +171,13 @@ def main():
         }
     ]
     
+    # Prüfe ob Step 4 übersprungen werden soll (von GUI)
+    skip_step4 = os.getenv('SKIP_STEP4', 'false').lower() == 'true'
+    if skip_step4:
+        steps = [s for s in steps if s['number'] != 4]
+        print(f"Step 4 wird übersprungen (SKIP_STEP4={skip_step4})")
+        print()
+    
     # Führe alle Schritte aus
     failed_steps = []
     total_steps = len(steps)
