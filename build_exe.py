@@ -52,8 +52,6 @@ if icon_path.exists():
     options.append(f"--icon={icon_path}")
 
 # Füge Daten-Dateien hinzu (optional)
-# options.append("--add-data=README.md:.")
-
 print("=" * 60)
 print("Erstelle Windows Executable...")
 print("=" * 60)

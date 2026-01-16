@@ -243,7 +243,7 @@ def build_log_section():
     log_layout.addWidget(log_output)
     
     log_btn_layout = QHBoxLayout()
-    clear_btn = QPushButton("🗑️ Log löschen")
+    clear_btn = QPushButton("🗑️ Migration-Logs löschen")
     save_log_btn = QPushButton("💾 Debug-Logs exportieren")
     view_mapping_btn = QPushButton("📋 Column Mapping anzeigen")
     collations_btn = QPushButton("⚙️ Collations konfigurieren")

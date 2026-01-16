@@ -247,7 +247,8 @@ class MigrationGUI(QMainWindow):
             self.select_flyway_source,
             self.select_flyway_target,
             self.run_flyway_conversion,
-            self.download_flyway_logs
+            self.download_flyway_logs,
+            self.clear_flyway_logs
         )
     
     # ========== Config-Methoden ==========
@@ -503,6 +504,9 @@ class MigrationGUI(QMainWindow):
             QMessageBox.warning(self, "Fehler", "Bitte Zielverzeichnis wählen")
             return
         
+        # Deaktiviere Convert Button während Konvertierung läuft
+        self.flyway_controls['convert_btn'].setEnabled(False)
+        
         # Prüfe ob Collations übersprungen werden sollen
         skip_collations = not self.db_controls['step4_checkbox'].isChecked()
         
@@ -575,6 +579,8 @@ Konvertierte Dateien:
         
         finally:
             log_handle.close()
+            # Aktiviere Convert Button wieder
+            self.flyway_controls['convert_btn'].setEnabled(True)
     
     def download_flyway_logs(self):
         """Exportiere Flyway Logs wie Debug-Logs"""
@@ -651,6 +657,10 @@ Konvertierte Dateien:
             error_msg = f"Fehler beim Exportieren: {str(e)}"
             self.log(f"✗ {error_msg}")
             QMessageBox.critical(self, "Fehler", error_msg)
+    
+    def clear_flyway_logs(self):
+        """Lösche die Anzeige der Flyway Konvertierungs-Ergebnisse"""
+        self.flyway_controls['result_text'].clear()
 
 
 def main():

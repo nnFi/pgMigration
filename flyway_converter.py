@@ -55,20 +55,38 @@ class FlywayConverter:
         # 4. Entferne dbo. Präfixe
         result = self._remove_dbo_prefix(result)
         
-        # 5. Vereinfache DROP INDEX Statements
+        # 5. Konvertiere Bracket-Identifiers [name] → "name"
+        result = self._convert_bracket_identifiers(result)
+        
+        # 6. Konvertiere IDENTITY zu SERIAL/GENERATED ALWAYS AS IDENTITY
+        result = self._convert_identity(result)
+        
+        # 7. Konvertiere Stored Procedures zu Functions
+        result = self._convert_procedures_to_functions(result)
+        
+        # 8. Konvertiere Transactions (BEGIN TRANSACTION → BEGIN)
+        result = self._convert_transactions(result)
+        
+        # 9. Konvertiere Extended Properties zu COMMENT ON Statements
+        result = self._convert_extended_properties(result)
+        
+        # 10. Vereinfache DROP INDEX Statements
         result = self._convert_drop_index(result)
         
-        # 6. Vereinfache DROP TABLE / object_id checks
+        # 11. Vereinfache DROP TABLE / object_id checks
         result = self._convert_object_id_checks(result)
         
-        # 7. Konvertiere DEFAULT CURRENT_TIMESTAMP
+        # 12. Konvertiere DEFAULT CURRENT_TIMESTAMP
         result = self._convert_timestamp_defaults(result)
         
-        # 8. Entferne MSSQL-spezifische Variablendeklarationen
+        # 13. Entferne MSSQL-spezifische Variablendeklarationen
         result = self._remove_mssql_variables(result)
         
-        # 9. Vereinfache IF EXISTS Statements
+        # 14. Vereinfache IF EXISTS Statements (nur für spezifische sys.*)
         result = self._convert_if_exists_statements(result)
+        
+        # 15. Räume leere Zeilen und überschüssige Semikolons auf
+        result = self._cleanup_empty_lines_and_semicolons(result)
         
         return result, self.conversion_log
     
@@ -167,14 +185,124 @@ class FlywayConverter:
             self.conversion_log.append(f"MSSQL DECLARE-Statements entfernt ({matches} Vorkommen)")
         return re.sub(pattern, '', sql, flags=re.IGNORECASE)
     
-    def _convert_if_exists_statements(self, sql: str) -> str:
-        """Vereinfache IF EXISTS Statements"""
-        # Entferne "if exists (select * from sys.foreign_keys where ...)" Pattern
-        pattern = r'if\s+exists\s*\(\s*select\s+\*\s+from\s+sys\.\w+.*?\)\n'
+    def _convert_bracket_identifiers(self, sql: str) -> str:
+        """Konvertiere Bracket-Identifiers [name] zu "name" """
+        pattern = r'\[([^\]]+)\]'
+        matches = len(re.findall(pattern, sql))
+        if matches > 0:
+            self.conversion_log.append(f"Bracket-Identifiers konvertiert ({matches} Vorkommen)")
+        return re.sub(pattern, r'"\1"', sql)
+    
+    def _convert_identity(self, sql: str) -> str:
+        """Konvertiere MSSQL IDENTITY zu PostgreSQL GENERATED ALWAYS AS IDENTITY"""
+        pattern = r'IDENTITY\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)'
+        matches = len(re.findall(pattern, sql, re.IGNORECASE))
+        if matches > 0:
+            self.conversion_log.append(f"IDENTITY konvertiert zu GENERATED ALWAYS AS IDENTITY ({matches} Vorkommen)")
+        return re.sub(pattern, 'GENERATED ALWAYS AS IDENTITY', sql, flags=re.IGNORECASE)
+    
+    def _convert_procedures_to_functions(self, sql: str) -> str:
+        """Konvertiere MSSQL Stored Procedures zu PostgreSQL Functions"""
+        # CREATE PROCEDURE → CREATE FUNCTION
+        pattern = r'CREATE\s+PROCEDURE\s+'
+        matches = len(re.findall(pattern, sql, re.IGNORECASE))
+        
+        if matches > 0:
+            self.conversion_log.append(f"Stored Procedures zu Functions konvertiert ({matches} Vorkommen)")
+            
+            # Ersetze CREATE PROCEDURE mit CREATE FUNCTION
+            result = re.sub(pattern, 'CREATE FUNCTION ', sql, flags=re.IGNORECASE)
+            
+            # Ersetze AS mit AS $$ (für Function Body)
+            # Nur die erste AS nach CREATE FUNCTION
+            result = re.sub(
+                r'(CREATE\s+FUNCTION\s+\w+(?:\s*\([^)]*\))?\s+RETURNS\s+[^\s]+)\s+AS\s+',
+                r'\1 AS $$',
+                result,
+                flags=re.IGNORECASE
+            )
+            
+            # Füge language plpgsql am Ende hinzu (vor GO oder am Ende der Prozedur)
+            result = re.sub(
+                r'(\$\$)\s*(GO|;)',
+                r'\1 LANGUAGE plpgsql;\2',
+                result,
+                flags=re.IGNORECASE
+            )
+            
+            return result
+        
+        return sql
+    
+    def _convert_transactions(self, sql: str) -> str:
+        """Konvertiere Transaction Syntax"""
+        # BEGIN TRANSACTION → BEGIN
+        pattern = r'BEGIN\s+TRANSACTION'
+        matches = len(re.findall(pattern, sql, re.IGNORECASE))
+        if matches > 0:
+            self.conversion_log.append(f"Transaction-Statements konvertiert ({matches} Vorkommen)")
+        return re.sub(pattern, 'BEGIN', sql, flags=re.IGNORECASE)
+    
+    def _convert_extended_properties(self, sql: str) -> str:
+        """Entferne Extended Properties Blöcke - diese sind zu komplex zum automatischen Konvertieren"""
+        # Extended Properties sind MSSQL-spezifisch und haben kein direktes PostgreSQL-Äquivalent
+        # Entferne diese kompletten IF/BEGIN/END Blöcke komplett
+        pattern = r"if\s+exists\s*\(\s*select\s+.*?from\s+sys\.extended_properties.*?\)\s*begin\s+exec\s+sys\.sp_(?:add|update)extendedproperty.*?end\s*else\s*begin\s+exec\s+sys\.sp_(?:add|update)extendedproperty.*?end"
+        
         matches = len(re.findall(pattern, sql, re.IGNORECASE | re.DOTALL))
         if matches > 0:
-            self.conversion_log.append(f"sys.* IF EXISTS vereinfacht ({matches} Vorkommen)")
-        return re.sub(pattern, '', sql, flags=re.IGNORECASE | re.DOTALL)
+            self.conversion_log.append(f"Extended Properties Blöcke entfernt ({matches}) - manuell prüfen!")
+            result = re.sub(pattern, '', sql, flags=re.IGNORECASE | re.DOTALL)
+        else:
+            result = sql
+        
+        return result
+    
+    def _convert_if_exists_statements(self, sql: str) -> str:
+        """Vereinfache nur SEHR spezifische unnötige IF EXISTS Statements"""
+        # Entferne NUR: if exists (select * from sys.foreign_keys where object_id(...))
+        # Lasse ALLES andere, inklusive extended_properties!
+        pattern = r'if\s+exists\s*\(\s*select\s+\*\s+from\s+sys\.foreign_keys\s+where\s+object_id.*?\)\s*\n'
+        matches = len(re.findall(pattern, sql, re.IGNORECASE | re.DOTALL))
+        if matches > 0:
+            self.conversion_log.append(f"Unnötige sys.foreign_keys IF EXISTS entfernt ({matches})")
+            return re.sub(pattern, '', sql, flags=re.IGNORECASE | re.DOTALL)
+        
+        return sql
+    
+    def _cleanup_empty_lines_and_semicolons(self, sql: str) -> str:
+        """Räume leere Zeilen und überschüssige Semikolons auf"""
+        result = sql
+        
+        # Ersetze mehrere aufeinanderfolgende Semikolons durch eines (mit Whitespace)
+        pattern_multiple_semicolons = r';\s*;\s*'
+        matches_semicolons = len(re.findall(pattern_multiple_semicolons, result))
+        if matches_semicolons > 0:
+            result = re.sub(pattern_multiple_semicolons, ';\n', result)
+        
+        # Ersetze mehrere aufeinanderfolgende leere Zeilen durch eine
+        pattern_empty_lines = r'\n\s*\n\s*\n+'
+        result = re.sub(pattern_empty_lines, '\n\n', result)
+        
+        # Entferne Zeilen die NUR Whitespace + Semikolon haben (ohne Code)
+        # aber behalte Semikolons nach Code-Statements
+        lines = result.split('\n')
+        cleaned_lines = []
+        for line in lines:
+            # Ignoriere reine Semikolon-Zeilen
+            if line.strip() == ';':
+                continue
+            cleaned_lines.append(line)
+        
+        result = '\n'.join(cleaned_lines)
+        
+        # Entferne führende und abschließende leere Zeilen
+        result = result.strip()
+        
+        if matches_semicolons > 0:
+            self.conversion_log.append(f"Mehrfache Semikolons bereinigt ({matches_semicolons} Vorkommen)")
+        
+        return result
 
 
 def convert_flyway_scripts(source_dir: Path, target_dir: Path, log_callback=None, skip_collations=False) -> dict:
@@ -199,10 +327,13 @@ def convert_flyway_scripts(source_dir: Path, target_dir: Path, log_callback=None
     # Erstelle Zielverzeichnis
     target_dir.mkdir(parents=True, exist_ok=True)
     
-    # Leere Zielverzeichnis
-    for file in target_dir.glob("*"):
-        if file.is_file():
-            file.unlink()
+    # Leere Zielverzeichnis vollständig (inkl. Subdirectories)
+    for item in target_dir.iterdir():
+        if item.is_file():
+            item.unlink()
+        elif item.is_dir():
+            import shutil
+            shutil.rmtree(item)
     
     converter = FlywayConverter(skip_collations=skip_collations)
     results = {

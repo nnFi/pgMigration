@@ -10,27 +10,19 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QFont
 
 
-def connect_flyway_buttons(controls, source_callback, target_callback, convert_callback, download_callback):
+def connect_flyway_buttons(controls, source_callback, target_callback, convert_callback, download_callback, clear_logs_callback):
     """Verbinde Flyway Buttons mit ihren Callbacks"""
     controls['source_dir_btn'].clicked.connect(source_callback)
     controls['target_dir_btn'].clicked.connect(target_callback)
     controls['convert_btn'].clicked.connect(convert_callback)
     controls['download_btn'].clicked.connect(download_callback)
+    controls['clear_logs_btn'].clicked.connect(clear_logs_callback)
 
 
 def build_flyway_section():
     """Baue Flyway Converter Sektion"""
     flyway_group = QGroupBox("Flyway SQL Converter - MSSQL zu PostgreSQL")
     flyway_layout = QVBoxLayout()
-    
-    # Beschreibung
-    description = QLabel(
-        "Konvertiert SQL-Migration Scripts von MSSQL-Syntax zu PostgreSQL-Syntax\n"
-        "• Gibt Quell- und Zielverzeichnis an\n"
-        "• Erstellt automatisch Kopien und modifiziert sie\n"
-    )
-    description.setFont(QFont("Arial", 9))
-    flyway_layout.addWidget(description)
     
     # Verzeichnis-Auswahl
     dir_layout = QHBoxLayout()
@@ -92,11 +84,14 @@ def build_flyway_section():
     flyway_layout.addWidget(result_text)
     
     # Download Button für Logs - wie Debug-Logs Button (kein spezielles Styling)
-    download_btn = QPushButton("📥 Flyway Logs exportieren")
-    download_btn_layout = QHBoxLayout()
-    download_btn_layout.addWidget(download_btn)
-    download_btn_layout.addStretch()
-    flyway_layout.addLayout(download_btn_layout)
+    download_btn = QPushButton("📥 Flyway-Logs exportieren")
+    clear_logs_btn = QPushButton("🗑️ Konvertierungs Logs löschen")
+    
+    logs_btn_layout = QHBoxLayout()
+    logs_btn_layout.addWidget(clear_logs_btn)
+    logs_btn_layout.addWidget(download_btn)
+    logs_btn_layout.addStretch()
+    flyway_layout.addLayout(logs_btn_layout)
     
     flyway_group.setLayout(flyway_layout)
     
@@ -107,5 +102,6 @@ def build_flyway_section():
         'target_dir_label': target_dir_label,
         'convert_btn': convert_btn,
         'download_btn': download_btn,
+        'clear_logs_btn': clear_logs_btn,
         'result_text': result_text,
     }
