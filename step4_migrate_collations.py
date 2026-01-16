@@ -6,10 +6,12 @@ Migriert Collations von MSSQL nach PostgreSQL
 import pyodbc
 import psycopg2
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 from datetime import datetime
 import sys
 import json
+from collations_manager import load_collations_with_fallback
 
 # Logging Setup
 class Logger:
@@ -17,7 +19,6 @@ class Logger:
     LOG_LEVELS = {'DEBUG': 0, 'INFO': 1, 'WARNING': 2, 'ERROR': 3}
     
     def __init__(self, filename):
-        from pathlib import Path
         self.terminal = sys.stdout
         self.filename = filename
         # Erstelle logs Verzeichnis
@@ -76,29 +77,8 @@ def print_summary(msg):
 # Lade Umgebungsvariablen
 load_dotenv()
 
-# Lade Collations Konfiguration
-def load_collations_config():
-    """Lade Collations Mapping aus collations_config.json"""
-    from pathlib import Path
-    config_file = Path('collations_config.json')
-    
-    if config_file.exists():
-        try:
-            with open(config_file, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-            print_summary(f"Collations Konfiguration geladen: {config_file}")
-            return config.get('collations', {})
-        except Exception as e:
-            print_detail(f"Fehler beim Laden von {config_file}: {e}", level='WARNING')
-            print_detail("Nutze Standard Collations Mapping", level='INFO')
-            return {}
-    else:
-        print_detail(f"Datei nicht gefunden: {config_file}", level='INFO')
-        print_detail("Nutze Standard Collations Mapping", level='INFO')
-        return {}
-
 # Lade Konfiguration oder nutze Standards
-CUSTOM_COLLATIONS = load_collations_config()
+COLLATION_MAPPING = load_collations_with_fallback()
 
 # MSSQL Konfiguration
 MSSQL_SERVER = os.getenv('MSSQL_SERVER')
@@ -120,20 +100,6 @@ def normalize_name(name):
     """Normalisiere Namen: Ersetze - durch _"""
     # Ersetze - durch _
     return name.replace('-', '_')
-
-# Mapping von MSSQL Collations zu PostgreSQL Collations
-# Mehrere Optionen pro MSSQL-Collation, erste verfügbare wird verwendet
-DEFAULT_COLLATION_MAPPING = {
-    'SQL_Latin1_General_CP1_CI_AS': ['de-DE-x-icu', 'de_DE.utf8', 'de_DE', 'en-US-x-icu', 'en_US.utf8', 'C.UTF-8', 'default'],
-    'Latin1_General_CI_AS': ['de-DE-x-icu', 'de_DE.utf8', 'de_DE', 'en-US-x-icu', 'en_US.utf8', 'C.UTF-8', 'default'],
-    'SQL_Latin1_General_CP1_CS_AS': ['C'],
-    'Latin1_General_CS_AS': ['C'],
-    'German_PhoneBook_CI_AS': ['de-DE-x-icu', 'de_DE.utf8', 'de_DE', 'default'],
-    'SQL_Latin1_General_CP850_CI_AS': ['de-DE-x-icu', 'de_DE.utf8', 'de_DE', 'en-US-x-icu', 'en_US.utf8', 'default'],
-}
-
-# Verwende Custom Mapping wenn vorhanden, sonst Default
-COLLATION_MAPPING = CUSTOM_COLLATIONS if CUSTOM_COLLATIONS else DEFAULT_COLLATION_MAPPING
 
 def connect_mssql():
     """Verbindung zu MSSQL herstellen"""

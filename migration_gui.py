@@ -10,18 +10,23 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 import io
+import traceback
 from contextlib import redirect_stdout, redirect_stderr
 
-from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QMessageBox, QFileDialog
+from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QMessageBox, QFileDialog, QInputDialog, QPushButton
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QTimer
 from PyQt6.QtGui import QTextCursor
 
 # Importiere Module
 from collations_manager import ensure_collations_config
+from type_mappings_manager import ensure_type_mappings_config
 from gui_builder import build_database_section, build_migration_steps_section, build_log_section
 from config_manager import save_env, load_env_into_ui, get_env_vars_from_ui
 from connection_tester import test_mssql_connection, test_pg_connection
 from dialogs import show_column_mapping_dialog, save_debug_logs, edit_collations_config
+from flyway_gui import build_flyway_section, connect_flyway_buttons
+from flyway_converter import convert_flyway_scripts
+from type_mappings_editor import TypeMappingsEditor
 
 
 class MigrationWorker(QThread):
@@ -51,9 +56,8 @@ class MigrationWorker(QThread):
                 old_env[key] = os.environ.get(key)
                 os.environ[key] = value
             
-            import __main__
-            if hasattr(__main__, 'work_path'):
-                work_dir = __main__.work_path
+            if hasattr(sys.modules.get('__main__'), 'work_path'):
+                work_dir = sys.modules['__main__'].work_path
             else:
                 work_dir = Path(self.script_path).parent
             
@@ -100,10 +104,36 @@ class MigrationWorker(QThread):
                     os.environ[key] = value
                     
         except Exception as e:
-            import traceback
             error_msg = f"Fehler: {str(e)}\n{traceback.format_exc()}"
             self.log_output.emit(error_msg)
             self.finished.emit(False, f"Fehler: {str(e)}")
+
+
+def ask_german_question(parent, title, message, default_no=False):
+    """Zeige Frage mit deutschen Ja/Nein Buttons"""
+    msg = QMessageBox(parent)
+    msg.setWindowTitle(title)
+    msg.setText(message)
+    msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+    msg.button(QMessageBox.StandardButton.Yes).setText("Ja")
+    msg.button(QMessageBox.StandardButton.No).setText("Nein")
+    if default_no:
+        msg.setDefaultButton(QMessageBox.StandardButton.No)
+    return msg.exec() == QMessageBox.StandardButton.Yes
+
+
+def ask_german_warning(parent, title, message, default_no=False):
+    """Zeige Warnung mit deutschen Ja/Nein Buttons"""
+    msg = QMessageBox(parent)
+    msg.setWindowTitle(title)
+    msg.setText(message)
+    msg.setIcon(QMessageBox.Icon.Warning)
+    msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+    msg.button(QMessageBox.StandardButton.Yes).setText("Ja")
+    msg.button(QMessageBox.StandardButton.No).setText("Nein")
+    if default_no:
+        msg.setDefaultButton(QMessageBox.StandardButton.No)
+    return msg.exec() == QMessageBox.StandardButton.Yes
 
 
 class MigrationGUI(QMainWindow):
@@ -125,6 +155,7 @@ class MigrationGUI(QMainWindow):
         
         self.setup_ui()
         ensure_collations_config(self.work_path)
+        ensure_type_mappings_config()
         self.load_env()
         
     def setup_ui(self):
@@ -136,12 +167,15 @@ class MigrationGUI(QMainWindow):
         db_group, self.db_controls = build_database_section()
         steps_group, self.step_controls = build_migration_steps_section()
         log_group, self.log_controls = build_log_section()
+        flyway_group, self.flyway_controls = build_flyway_section()
         
         main_layout.addWidget(db_group)
         main_layout.addWidget(steps_group)
         main_layout.addWidget(log_group, stretch=1)
+        main_layout.addWidget(flyway_group)
         
         self._connect_signals()
+        self._connect_flyway_buttons()
         self.statusBar().showMessage("Bereit")
     
     def _connect_signals(self):
@@ -164,11 +198,11 @@ class MigrationGUI(QMainWindow):
                 if hasattr(item, 'count'):
                     for k in range(item.count()):
                         widget = item.itemAt(k).widget() if hasattr(item.itemAt(k), 'widget') else None
-                        if widget and hasattr(widget, 'clicked'):
+                        if isinstance(widget, QPushButton):
                             self._connect_button(widget)
                 else:
                     widget = item.widget() if hasattr(item, 'widget') else None
-                    if widget and hasattr(widget, 'clicked'):
+                    if isinstance(widget, QPushButton):
                         self._connect_button(widget)
     
     def _connect_button(self, button):
@@ -201,8 +235,20 @@ class MigrationGUI(QMainWindow):
             button.clicked.connect(self.export_debug_logs)
         elif "Column Mapping" in text:
             button.clicked.connect(self.view_column_mapping)
-        elif "konfigurieren" in text.lower():
+        elif "Collations" in text or "konfigurieren" in text.lower():
             button.clicked.connect(self.edit_collations_config_dialog)
+        elif "Datentypen" in text and "bearbeiten" in text:
+            button.clicked.connect(self.edit_type_mappings_dialog)
+    
+    def _connect_flyway_buttons(self):
+        """Verbinde Flyway Buttons explizit"""
+        connect_flyway_buttons(
+            self.flyway_controls,
+            self.select_flyway_source,
+            self.select_flyway_target,
+            self.run_flyway_conversion,
+            self.download_flyway_logs
+        )
     
     # ========== Config-Methoden ==========
     
@@ -263,10 +309,15 @@ class MigrationGUI(QMainWindow):
     def edit_collations_config_dialog(self):
         edit_collations_config(self, self.work_path, self.log)
     
+    def edit_type_mappings_dialog(self):
+        """Öffne Type Mappings Editor Dialog"""
+        dialog = TypeMappingsEditor(self)
+        dialog.exec()
+    
     # ========== Migration-Methoden ==========
     
     def run_single_step_with_warning(self, script_name, step_number):
-        reply = QMessageBox.warning(
+        if ask_german_warning(
             self, "Warnung: Einzelner Schritt",
             f"Sie führen Schritt {step_number} einzeln aus.\n\n"
             "ACHTUNG:\n"
@@ -275,11 +326,8 @@ class MigrationGUI(QMainWindow):
             "• Alle vorherigen Schritte müssen erfolgreich abgeschlossen sein!\n\n"
             "Es wird empfohlen, \"ALLE SCHRITTE AUSFÜHREN\" zu verwenden.\n\n"
             "Trotzdem fortfahren?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-        
-        if reply == QMessageBox.StandardButton.Yes:
+            default_no=True
+        ):
             self.run_step(script_name)
     
     def run_step(self, script_name):
@@ -341,14 +389,11 @@ class MigrationGUI(QMainWindow):
         step4_checked = self.db_controls['step4_checkbox'].isChecked()
         step4_text = "4. Collations" if step4_checked else "4. Collations (übersprungen)"
         
-        reply = QMessageBox.question(
+        if ask_german_question(
             self, "Bestätigung",
             f"Alle Migrationsschritte ausführen?\n\n1. Tabellen & Daten\n2. Verifizierung\n"
-            f"3. Constraints & Indexes\n{step4_text}",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        
-        if reply == QMessageBox.StandardButton.Yes:
+            f"3. Constraints & Indexes\n{step4_text}"
+        ):
             if not step4_checked:
                 os.environ['SKIP_STEP4'] = 'true'
             else:
@@ -422,6 +467,190 @@ class MigrationGUI(QMainWindow):
                 f"PostgreSQL Verbindung fehlgeschlagen:\n\n{result}\n\nBitte prüfen Sie:\n"
                 "• Server läuft?\n• Credentials korrekt?\n• Firewall/Port offen?"
             )
+    
+    # ========== Flyway Konvertierungs-Methoden ==========
+    
+    def select_flyway_source(self):
+        """Quellverzeichnis für Flyway Scripts wählen"""
+        source_dir = QFileDialog.getExistingDirectory(
+            self, "Quellverzeichnis mit MSSQL Scripts wählen",
+            str(Path.home())
+        )
+        
+        if source_dir:
+            self.flyway_controls['source_dir_label'].setText(source_dir)
+    
+    def select_flyway_target(self):
+        """Zielverzeichnis für konvertierte Scripts wählen"""
+        target_dir = QFileDialog.getExistingDirectory(
+            self, "Zielverzeichnis für PostgreSQL Scripts wählen",
+            str(Path.home())
+        )
+        
+        if target_dir:
+            self.flyway_controls['target_dir_label'].setText(target_dir)
+    
+    def run_flyway_conversion(self):
+        """Führe Flyway SQL Konvertierung durch"""
+        source = self.flyway_controls['source_dir_label'].text()
+        target = self.flyway_controls['target_dir_label'].text()
+        
+        if not source or source.startswith("Keine"):
+            QMessageBox.warning(self, "Fehler", "Bitte Quellverzeichnis wählen")
+            return
+        
+        if not target or target.startswith("Keine"):
+            QMessageBox.warning(self, "Fehler", "Bitte Zielverzeichnis wählen")
+            return
+        
+        # Prüfe ob Collations übersprungen werden sollen
+        skip_collations = not self.db_controls['step4_checkbox'].isChecked()
+        
+        # Erstelle Log-Verzeichnis für Flyway Konvertierung
+        run_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        run_dir = self.work_path / "logs" / f"flyway_{run_timestamp}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Öffne Log-Datei
+        log_file = run_dir / "flyway_conversion.log"
+        log_handle = open(log_file, 'w', encoding='utf-8')
+        
+        def flyway_log_callback(msg):
+            """Schreibe nur in Log-Datei, nicht ins GUI-Log"""
+            log_handle.write(msg + '\n')
+            log_handle.flush()
+        
+        flyway_log_callback("=" * 70)
+        flyway_log_callback(f"Starte Flyway SQL Konvertierung...")
+        flyway_log_callback(f"  Quelle: {source}")
+        flyway_log_callback(f"  Ziel: {target}")
+        flyway_log_callback(f"  Collations: {'übersprungen' if skip_collations else 'konvertiert'}")
+        flyway_log_callback(f"  Log-Datei: {log_file}")
+        flyway_log_callback("=" * 70)
+        
+        try:
+            results = convert_flyway_scripts(Path(source), Path(target), flyway_log_callback, skip_collations=skip_collations)
+            
+            # Prüfe auf Fehler
+            if "error" in results:
+                error_msg = results["error"]
+                self.log(f"Fehler: {error_msg}")
+                flyway_log_callback(f"Fehler: {error_msg}")
+                self.flyway_controls['result_text'].setText(f"FEHLER:\n{error_msg}")
+                QMessageBox.critical(self, "Fehler", error_msg)
+                log_handle.close()
+                return
+            
+            # Zeige Resultate an
+            total_files = results['converted'] + results['failed']
+            file_list = "\n".join(f"  • {f['name']} ({f['changes']} Änderungen)" for f in results['files'])
+            
+            result_text = f"""
+Gesamt Dateien verarbeitet: {total_files}
+Erfolgreich konvertiert: {results['converted']}
+Fehler: {results['failed']}
+Gesamte Änderungen: {results['total_changes']}
+
+Konvertierte Dateien:
+{file_list}
+"""
+            
+            self.flyway_controls['result_text'].setText(result_text)
+            
+            # Schreibe Summary in Log
+            flyway_log_callback("\n" + "=" * 70)
+            flyway_log_callback("ZUSAMMENFASSUNG:")
+            flyway_log_callback(f"Gesamt Dateien: {total_files}")
+            flyway_log_callback(f"Erfolgreich: {results['converted']}")
+            flyway_log_callback(f"Fehler: {results['failed']}")
+            flyway_log_callback(f"Gesamte Änderungen: {results['total_changes']}")
+            flyway_log_callback("=" * 70)
+                
+        except Exception as e:
+            error_msg = f"Fehler bei Flyway Konvertierung: {str(e)}"
+            flyway_log_callback(f"{error_msg}")
+            flyway_log_callback(traceback.format_exc())
+            self.flyway_controls['result_text'].setText(f"FEHLER:\n{error_msg}")
+            QMessageBox.critical(self, "Fehler", error_msg)
+        
+        finally:
+            log_handle.close()
+    
+    def download_flyway_logs(self):
+        """Exportiere Flyway Logs wie Debug-Logs"""
+        logs_dir = self.work_path / "logs"
+        
+        if not logs_dir.exists():
+            QMessageBox.warning(self, "Keine Logs", "Der logs/ Ordner existiert nicht.\nFühren Sie zuerst eine Konvertierung aus.")
+            return
+        
+        # Finde alle flyway_* Verzeichnisse
+        flyway_dirs = sorted(logs_dir.glob("flyway_*"), key=lambda x: x.name, reverse=True)
+        
+        if not flyway_dirs:
+            QMessageBox.warning(self, "Keine Logs", "Keine Flyway-Run-Verzeichnisse gefunden.\nFühren Sie zuerst eine Konvertierung aus.")
+            return
+        
+        # Nutze neuestes flyway_* Verzeichnis
+        latest_run = flyway_dirs[0]
+        log_files = list(latest_run.glob("*.log"))
+        
+        if not log_files:
+            QMessageBox.warning(self, "Keine Logs", f"Keine Logs in {latest_run.name} gefunden.")
+            return
+        
+        # Zeige Auswahl-Dialog falls mehrere Runs vorhanden
+        if len(flyway_dirs) > 1:
+            items = [d.name for d in flyway_dirs]
+            selected, ok = QInputDialog.getItem(
+                self,
+                "Flyway Run auswählen",
+                f"Mehrere Runs gefunden. Welche Logs exportieren?\n(Neuester: {items[0]})",
+                items,
+                0,
+                False
+            )
+            if not ok or not selected:
+                return
+            latest_run = logs_dir / selected
+            log_files = list(latest_run.glob("*.log"))
+        
+        # Wähle Zielverzeichnis
+        target_dir = QFileDialog.getExistingDirectory(
+            self,
+            "Flyway Logs exportieren nach...",
+            str(Path.home())
+        )
+        
+        if not target_dir:
+            return
+        
+        target_path = Path(target_dir)
+        
+        try:
+            copied_files = []
+            for log_file in log_files:
+                try:
+                    target_file = target_path / log_file.name
+                    shutil.copy2(log_file, target_file)
+                    copied_files.append(log_file.name)
+                    self.log(f"Log exportiert: {log_file.name}")
+                except Exception as e:
+                    self.log(f"Fehler beim Exportieren von {log_file.name}: {str(e)}")
+            
+            if copied_files:
+                file_list = "\n".join(f"  • {f}" for f in copied_files)
+                QMessageBox.information(
+                    self, "Erfolg",
+                    f"Flyway-Logs erfolgreich exportiert:\n\n{file_list}\n\n"
+                    f"Ziel: {target_dir}"
+                )
+            else:
+                QMessageBox.warning(self, "Fehler", "Es konnten keine Logs exportiert werden.")
+        except Exception as e:
+            error_msg = f"Fehler beim Exportieren: {str(e)}"
+            self.log(f"✗ {error_msg}")
+            QMessageBox.critical(self, "Fehler", error_msg)
 
 
 def main():
@@ -431,8 +660,7 @@ def main():
     
     window = MigrationGUI()
     
-    import __main__
-    __main__.work_path = window.work_path
+    sys.modules['__main__'].work_path = window.work_path
     
     window.show()
     sys.exit(app.exec())

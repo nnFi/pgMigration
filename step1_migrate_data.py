@@ -11,6 +11,8 @@ from dotenv import load_dotenv
 from datetime import datetime
 import sys
 import json
+from pathlib import Path
+from type_mappings_manager import load_type_mappings_with_fallback
 
 # Logging Setup
 class Logger:
@@ -95,37 +97,15 @@ PG_DATABASE = os.getenv('PG_DATABASE')
 PG_USER = os.getenv('PG_USER')
 PG_PASSWORD = os.getenv('PG_PASSWORD')
 
-# Mapping von MSSQL zu PostgreSQL Datentypen
-TYPE_MAPPING = {
-    'bigint': 'BIGINT',
-    'int': 'INTEGER',
-    'smallint': 'SMALLINT',
-    'tinyint': 'SMALLINT',
-    'bit': 'BOOLEAN',
-    'decimal': 'DECIMAL',
-    'numeric': 'NUMERIC',
-    'money': 'NUMERIC(19,4)',
-    'smallmoney': 'NUMERIC(10,4)',
-    'float': 'DOUBLE PRECISION',
-    'real': 'REAL',
-    'datetime': 'TIMESTAMPTZ',
-    'datetime2': 'TIMESTAMPTZ',
-    'smalldatetime': 'TIMESTAMPTZ',
-    'date': 'DATE',
-    'time': 'TIME',
-    'datetimeoffset': 'TIMESTAMP WITH TIME ZONE',
-    'char': 'CHAR',
-    'varchar': 'VARCHAR',
-    'text': 'TEXT',
-    'nchar': 'CHAR',
-    'nvarchar': 'VARCHAR',
-    'ntext': 'TEXT',
-    'binary': 'BYTEA',
-    'varbinary': 'BYTEA',
-    'image': 'BYTEA',
-    'uniqueidentifier': 'UUID',
-    'xml': 'XML'
-}
+# TYPE_MAPPING wird lazy geladen (nach Logger-Initialisierung)
+TYPE_MAPPING = None
+
+def get_type_mapping():
+    """Lade TYPE_MAPPING aus JSON-Konfiguration (lazy)"""
+    global TYPE_MAPPING
+    if TYPE_MAPPING is None:
+        TYPE_MAPPING = load_type_mappings_with_fallback()
+    return TYPE_MAPPING
 
 def connect_mssql():
     """Verbindung zu MSSQL herstellen"""
@@ -267,7 +247,8 @@ def get_table_columns(mssql_conn, schema, table):
 
 def map_column_type(data_type, max_length, precision, scale):
     """Mappe MSSQL Datentyp zu PostgreSQL"""
-    base_type = TYPE_MAPPING.get(data_type.lower(), 'TEXT')
+    type_mapping = get_type_mapping()
+    base_type = type_mapping.get(data_type.lower(), 'TEXT')
     
     if data_type.lower() in ['char', 'varchar', 'nchar', 'nvarchar']:
         if max_length and max_length > 0:

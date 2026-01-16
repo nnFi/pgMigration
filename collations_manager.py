@@ -80,3 +80,24 @@ def ensure_collations_config(work_path):
     except Exception as e:
         print(f"Fehler beim Erstellen von collations_config.json: {e}")
         return False
+
+
+def load_collations_with_fallback():
+    """
+    Lade Collations aus collations_config.json mit Fallback zu DEFAULT_COLLATIONS_CONFIG
+    
+    Returns:
+        dict: Collations Mapping (mssql -> postgres)
+    """
+    config_file = Path("collations_config.json")
+    
+    try:
+        if config_file.exists():
+            with open(config_file, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            return config.get('collations', DEFAULT_COLLATIONS_CONFIG.get('collations', {}))
+    except Exception as e:
+        print(f"Fehler beim Laden von collations_config.json: {e}")
+    
+    # Fallback zu Defaults
+    return DEFAULT_COLLATIONS_CONFIG.get('collations', {})

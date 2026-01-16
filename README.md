@@ -10,9 +10,11 @@ Professionelle Migrationsanwendung zur Konvertierung von Microsoft SQL Server Da
 2. [Konfiguration](#konfiguration)
 3. [Verwendung](#verwendung)
 4. [GUI Anwendung](#gui-anwendung)
-5. [Portable Version (USB)](#portable-version-usb)
-6. [Technische Details](#technische-details)
-7. [Lizenz & Hinweis](#lizenz--hinweis)
+5. [Flyway SQL Converter](#flyway-sql-converter-neu)
+6. [Datentyp-Mappings Konfiguration](#datentyp-mappings-konfiguration)
+7. [Portable Version (USB)](#portable-version-usb)
+8. [Technische Details](#technische-details)
+9. [Lizenz & Hinweis](#lizenz--hinweis)
 
 ---
 
@@ -110,6 +112,18 @@ python migration_gui.py
 - Automatische Konvertierung beim Start wenn nicht vorhanden
 - Step 4 nutzt automatisch Ihre Custom-Mappings
 
+✅ **Datentyp-Mappings bearbeiten** 🔄
+- Button "🔄 Datentypen bearbeiten" öffnet interaktiven Editor
+- Alle 28 MSSQL → PostgreSQL Datentyp-Mappings anpassbar
+- Live-Änderungen werden automatisch gespeichert
+- Wird von Step1 und Flyway-Converter verwendet
+
+✅ **Flyway SQL Scripts konvertieren** ✨ (NEU)
+- Konvertiert MSSQL SQL-Scripts zu PostgreSQL-Syntax
+- Support für 40+ MSSQL → PostgreSQL Datentypen
+- Automatische Konvertierung von Statements und Funktionen
+- Logs mit Detailinformationen über alle Änderungen
+
 ✅ **Sicherheit**
 - Warnung bei Einzelschritt-Ausführung (richtige Reihenfolge wichtig!)
 - Verbindungstests vor Migration
@@ -136,16 +150,132 @@ python step4_migrate_collations.py  # Collations (optional)
 
 ---
 
+## Flyway SQL Converter (NEU) ✨
+
+Der **Flyway SQL Converter** konvertiert MSSQL SQL-Scripts automatisch zu PostgreSQL-Syntax. Dies ist besonders nützlich für Datenbankmigrationen, bei denen Sie vorhandene SQL-Scripts anpassen müssen.
+
+### Features
+
+✅ **40+ MSSQL → PostgreSQL Datentypen**
+- Vollständige Datentyp-Konvertierung
+- Unterstützt komplexe Typen (decimal, numeric, varchar(max), etc.)
+- Konfigurierbar über Datentyp-Mappings Editor
+
+✅ **SQL-Syntax Konvertierungen**
+- `GO` Statements in PostgreSQL Syntax
+- `dbo.` Präfixe entfernen
+- `DROP INDEX` vereinfachen
+- `OBJECT_ID` Checks konvertieren
+- `GETDATE()` zu `CURRENT_TIMESTAMP`
+- `NEWID()` zu `gen_random_uuid()`
+- `DEFAULT CURRENT_TIMESTAMP` anpassen
+- `IF EXISTS` Statements konvertieren
+
+✅ **Detailliertes Logging**
+- Logs zeigen alle durchgeführten Konvertierungen
+- Fehlerberichte für problematische Scripts
+- Dateiweise Änderungsübersicht
+- Export der Logs möglich
+
+### Verwendung in der GUI
+
+1. **Flyway Sektion** unten in der Migration GUI öffnen
+2. **Quellverzeichnis wählen** - Verzeichnis mit MSSQL .sql-Dateien
+3. **Zielverzeichnis wählen** - Wo die konvertierten Dateien gespeichert werden
+4. **"Konvertiere SQL-Scripts" Button** klicken
+5. **Ergebnisse prüfen** - Live-Log zeigt alle Änderungen
+6. **Logs exportieren** - Optional zum Weiterverarbeiten speichern
+
+### Kommandozeile Verwendung
+
+```python
+from flyway_converter import convert_flyway_scripts
+
+result = convert_flyway_scripts(
+    source_dir='./sql_scripts',
+    target_dir='./sql_scripts_converted'
+)
+
+print(f"Konvertiert: {result['converted']} Dateien")
+print(f"Fehler: {result['failed']} Dateien")
+print(f"Änderungen: {result['total_changes']} gesamt")
+```
+
+---
+
+## Datentyp-Mappings Konfiguration
+
+Die Datentyp-Mappings definieren, wie MSSQL-Datentypen zu PostgreSQL konvertiert werden. Sie können alle 28 Mappings anpassen.
+
+### Automatische Erstellung
+
+Beim Start der GUI wird automatisch `type_mappings_config.json` erstellt mit:
+- 28 Standard MSSQL → PostgreSQL Datentyp-Mappings
+- Alle gängigen Typen: bigint, int, varchar, decimal, datetime, etc.
+- Konfigurierbar und erweiterbar
+
+### Mappings Editor (GUI)
+
+1. **Migration GUI öffnen**
+2. **"🔄 Datentypen bearbeiten" Button** klicken (im Log-Bereich)
+3. **Tabelle mit Mappings öffnet sich**
+4. **Änderungen vornehmen:**
+   - Neue Zeile hinzufügen (➕ Button)
+   - Bestehende Einträge direkt bearbeiten
+   - Zeilen löschen (🗑️ Button)
+5. **Speichern** (💾 Button) speichert in `type_mappings_config.json`
+
+### Beispiel `type_mappings_config.json`
+
+```json
+{
+  "type_mappings": {
+    "bigint": "BIGINT",
+    "int": "INTEGER",
+    "smallint": "SMALLINT",
+    "tinyint": "SMALLINT",
+    "bit": "BOOLEAN",
+    "decimal": "DECIMAL",
+    "numeric": "NUMERIC",
+    "money": "NUMERIC(19,4)",
+    "float": "DOUBLE PRECISION",
+    "real": "REAL",
+    "datetime": "TIMESTAMPTZ",
+    "datetime2": "TIMESTAMPTZ",
+    "datetimeoffset": "TIMESTAMP WITH TIME ZONE",
+    "varchar": "VARCHAR",
+    "nvarchar": "VARCHAR",
+    "text": "TEXT",
+    "ntext": "TEXT",
+    "varbinary": "BYTEA",
+    "image": "BYTEA",
+    "uniqueidentifier": "UUID",
+    "xml": "XML"
+  }
+}
+```
+
+### Mappings verwenden
+
+Die Mappings werden automatisch verwendet von:
+- **Step1** (`step1_migrate_data.py`) - bei Tabellenerstellung
+- **Flyway Converter** (`flyway_converter.py`) - bei SQL-Script-Konvertierung
+
+Änderungen werden sofort übernommen, ohne dass die Anwendung neu gestartet werden muss!
+
+---
+
 ## Was wird migriert?
 
 | Element | Details |
 |---------|---------|
 | **Tabellen** | Struktur und alle Daten |
-| **Datentypen** | Automatische Konvertierung MSSQL → PostgreSQL |
+| **Datentypen** | Automatische Konvertierung MSSQL → PostgreSQL (28 Typen) |
 | **Constraints** | Primary Keys, Unique Constraints, Check Constraints |
 | **Foreign Keys** | Referentielle Integrität |
 | **Indizes** | Performance-Indizes |
 | **Collations** | Optional, mappe MSSQL → PostgreSQL Collations |
+| **SQL-Scripts** | Mit Flyway Converter konvertierbar |
 
 ---
 
@@ -272,6 +402,71 @@ logs/
 | **Konfiguration** | python-dotenv (.env-Dateien) |
 | **Threading** | QThread für nicht-blockierende Migration |
 | **Packaging** | PyInstaller für .exe-Erstellung |
+
+### Modulararchitektur
+
+Die Anwendung ist in spezialisierte Module aufgeteilt:
+
+| Modul | Aufgabe |
+|-------|---------|
+| `migration_gui.py` | Hauptanwendung & GUI-Orchestrierung |
+| `gui_builder.py` | Wiederverwendbare UI-Komponenten |
+| `config_manager.py` | .env-Konfigurationsverwaltung |
+| `connection_tester.py` | Datenbank-Verbindungstests |
+| `dialogs.py` | Dialog-Fenster (Mappings, Logs, Konfiguration) |
+| `collations_manager.py` | Collations-Konfigurationsverwaltung |
+| `type_mappings_manager.py` | Datentyp-Mappings Verwaltung |
+| `type_mappings_editor.py` | GUI-Editor für Datentyp-Mappings |
+| `flyway_converter.py` | SQL-Script-Konvertierungs-Engine |
+| `flyway_gui.py` | Flyway UI-Komponenten |
+| `step1_migrate_data.py` | Tabellen & Daten Migration |
+| `step2_verify_columns.py` | Spalten-Verifizierung |
+| `step3_migrate_constraints.py` | Constraints & Indizes Migration |
+| `step4_migrate_collations.py` | Collations Migration |
+
+### Datentyp-Support
+
+**Unterstützte MSSQL → PostgreSQL Konvertierungen (28 Typen):**
+
+Ganze Zahlen: `bigint`, `int`, `smallint`, `tinyint`  
+Boolesch: `bit` → `boolean`  
+Dezimalzahlen: `decimal`, `numeric`, `money`, `smallmoney`  
+Fließkomma: `float` → `double precision`, `real`  
+Datum/Zeit: `datetime`, `datetime2`, `smalldatetime` → `timestamp`, `datetimeoffset` → `timestamp with time zone`, `date`, `time`  
+Text: `varchar`, `nvarchar`, `char`, `nchar`, `text`, `ntext`  
+Binär: `binary`, `varbinary`, `image` → `bytea`  
+Spezielle: `uniqueidentifier` → `uuid`, `xml` → `xml`  
+
+---
+
+## Wichtige Hinweise
+
+- ⚠️ Erstellen Sie ein Backup der Quell-Datenbank
+- Testen Sie mit einer Test-Datenbank
+- Die Schritte müssen in Reihenfolge ausgeführt werden
+- Flyway Converter: Überprüfen Sie konvertierte Scripts vor Einsatz
+- Datentypen: Testen Sie Custom-Mappings mit Ihre Daten
+
+---
+
+## Häufig gestellte Fragen (FAQ)
+
+### Kann ich bestimmte Tabellen ausschließen?
+Derzeit werden alle Tabellen migriert. Für selektive Migrationen nutzen Sie separate Datenbanken.
+
+### Was ist wenn eine Verbindung fehlschlägt?
+1. Nutzen Sie "MSSQL testen" / "PostgreSQL testen" Buttons zum Debuggen
+2. Überprüfen Sie Netzwerk-Konnektivität
+3. Verifizieren Sie Server-Name, Port und Zugangsdaten
+
+### Kann ich Mappings während der Migration ändern?
+Ja! Änderungen in `type_mappings_config.json` werden sofort übernommen.
+Step1 nutzt die aktuellen Mappings beim Start, nicht beim Import!
+
+### Wie kann ich den SQL Converter erweitern?
+Bearbeiten Sie `flyway_converter.py`:
+- Fügen Sie neue Regex-Pattern in `_convert_data_types()` hinzu
+- Oder erweitern Sie `load_type_mappings()` für zusätzliche Konvertierungen
 
 ---
 

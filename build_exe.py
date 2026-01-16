@@ -27,6 +27,9 @@ options = [
     f"--add-data={base_path / 'step3_migrate_constraints.py'};.",
     f"--add-data={base_path / 'step4_migrate_collations.py'};.",
     f"--add-data={base_path / 'run_all.py'};.",
+    # Konfigurationsdateien
+    f"--add-data={base_path / 'type_mappings_config.json'};.",
+    f"--add-data={base_path / 'collations_config.json'};.",
     # Hidden imports für Dependencies die in embedded scripts verwendet werden
     "--hidden-import=pyodbc",
     "--hidden-import=psycopg2",
@@ -38,6 +41,10 @@ options = [
     "--hidden-import=connection_tester",
     "--hidden-import=dialogs",
     "--hidden-import=collations_manager",
+    "--hidden-import=flyway_converter",
+    "--hidden-import=flyway_gui",
+    "--hidden-import=type_mappings_manager",
+    "--hidden-import=type_mappings_editor",
 ]
 
 # Füge Icon hinzu wenn vorhanden
