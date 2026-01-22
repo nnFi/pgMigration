@@ -380,6 +380,9 @@ def migrate_table_data(mssql_conn, pg_conn, schema, table, columns_info, batch_s
     table_key = f"{schema}.{table}"
     table_mapping = column_mapping.get(table_key, {})
     
+    # Prüfe ob Normalisierung aktiviert ist
+    normalize_enabled = os.getenv('NORMALIZE_COLUMNS', '').lower() == 'true'
+    
     # Finde IDENTITY-Spalten und prüfe auf GENERATED ALWAYS
     identity_always = os.getenv('IDENTITY_ALWAYS', 'false').lower() == 'true'
     
@@ -389,7 +392,24 @@ def migrate_table_data(mssql_conn, pg_conn, schema, table, columns_info, batch_s
         columns = [column[0] for column in mssql_cursor.description]
         
         # Mappe Spaltennamen zu PostgreSQL (gekürzte Namen)
-        pg_columns = [table_mapping.get(col, col) for col in columns]
+        pg_columns = []
+        for col in columns:
+            mapped_col = col
+            # Case-insensitive Mapping Lookup nur wenn Normalisierung aktiv
+            if normalize_enabled:
+                for mapping_key in table_mapping.keys():
+                    if mapping_key.lower() == col.lower():
+                        mapped_col = table_mapping[mapping_key]
+                        break
+            else:
+                # Normaler case-sensitive Lookup
+                mapped_col = table_mapping.get(col, col)
+            # Normalisiere (Bindestriche ersetzen) - KEIN lowercase, Spalten werden erst später umbenannt!
+            mapped_col = normalize_name(mapped_col)
+            pg_columns.append(mapped_col)
+        
+        # Normalisiere Tabellennamen (aber NICHT lowercase - die Tabellen werden erst später umbenannt!)
+        pg_table = normalize_name(table)
         
         # Erstelle INSERT Statement (mit oder ohne OVERRIDING SYSTEM VALUE)
         placeholders = ','.join(['%s'] * len(pg_columns))
@@ -397,9 +417,9 @@ def migrate_table_data(mssql_conn, pg_conn, schema, table, columns_info, batch_s
         
         # Mit GENERATED ALWAYS brauchen wir OVERRIDING SYSTEM VALUE
         if identity_always:
-            insert_query = f'INSERT INTO "{pg_schema}"."{table}" ({column_names}) OVERRIDING SYSTEM VALUE VALUES ({placeholders})'
+            insert_query = f'INSERT INTO "{pg_schema}"."{pg_table}" ({column_names}) OVERRIDING SYSTEM VALUE VALUES ({placeholders})'
         else:
-            insert_query = f'INSERT INTO "{pg_schema}"."{table}" ({column_names}) VALUES ({placeholders})'
+            insert_query = f'INSERT INTO "{pg_schema}"."{pg_table}" ({column_names}) VALUES ({placeholders})'
         
         # Batch-Insert
         rows = []
@@ -424,17 +444,19 @@ def migrate_table_data(mssql_conn, pg_conn, schema, table, columns_info, batch_s
             for col in columns_info:
                 if col.IS_IDENTITY == 1:
                     pg_col_name = table_mapping.get(col.COLUMN_NAME, col.COLUMN_NAME)
+                    # Normalisiere (Bindestriche ersetzen) - KEIN lowercase, Spalten werden erst später umbenannt!
+                    pg_col_name = normalize_name(pg_col_name)
                     identity_columns.append(pg_col_name)
             
             if identity_columns:
                 for id_col in identity_columns:
                     try:
                         # Hole aktuellen Maximalwert
-                        pg_cursor.execute(f'SELECT MAX("{id_col}") FROM "{pg_schema}"."{table}"')
+                        pg_cursor.execute(f'SELECT MAX("{id_col}") FROM "{pg_schema}"."{pg_table}"')
                         max_val = pg_cursor.fetchone()[0]
                         if max_val is not None:
                             # Finde Sequenznamen automatisch (funktioniert für GENERATED AS IDENTITY)
-                            pg_cursor.execute(f"SELECT pg_get_serial_sequence('\"{pg_schema}\".\"{table}\"', '{id_col}')")
+                            pg_cursor.execute(f"SELECT pg_get_serial_sequence('\"{pg_schema}\".\"{pg_table}\"', '{id_col}')")
                             sequence_name = pg_cursor.fetchone()[0]
                             if sequence_name:
                                 pg_cursor.execute(f"SELECT setval('{sequence_name}', {max_val})")
@@ -472,7 +494,7 @@ def normalize_column_names(pg_conn):
     try:
         print_summary("")
         print_summary("=" * 60)
-        print_summary("SPALTEN NORMALISIEREN (CamelCase → lowercase)")
+        print_summary("SPALTEN NORMALISIEREN (lowercase)")
         print_summary("=" * 60)
         
         # Finde alle Tabellen im public Schema

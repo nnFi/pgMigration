@@ -74,6 +74,8 @@ def load_env_into_ui(env_path, ui_controls):
             ui_controls['identity_always_checkbox'].setChecked(value.lower() == 'true')
         elif key == 'SKIP_STEP4':
             ui_controls['step4_checkbox'].setChecked(value.lower() != 'true')
+        elif key == 'NORMALIZE_COLUMNS':
+            ui_controls['normalize_columns_checkbox'].setChecked(value.lower() == 'true')
 
 
 def get_env_vars_from_ui(ui_controls):
@@ -98,6 +100,8 @@ def get_env_vars_from_ui(ui_controls):
         'LOG_LEVEL': ui_controls['log_level_combo'].currentText(),
         'MIGRATE_DATA': 'true' if ui_controls['migrate_data_checkbox'].isChecked() else 'false',
         'IDENTITY_ALWAYS': 'true' if ui_controls['identity_always_checkbox'].isChecked() else 'false',
+        'SKIP_STEP4': 'true' if not ui_controls['step4_checkbox'].isChecked() else 'false',
+        'NORMALIZE_COLUMNS': 'true' if ui_controls['normalize_columns_checkbox'].isChecked() else 'false',
     })
     
     return env_vars

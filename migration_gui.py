@@ -229,7 +229,7 @@ class MigrationGUI(QMainWindow):
             button.clicked.connect(lambda: self.run_single_step_with_warning("step4_migrate_collations.py", 4))
         elif "ALLE" in text:
             button.clicked.connect(self.run_all_steps)
-        elif "Log löschen" in text:
+        elif "Migration-Logs" in text and "löschen" in text:
             button.clicked.connect(self.clear_log)
         elif "Debug-Logs" in text:
             button.clicked.connect(self.export_debug_logs)
@@ -295,11 +295,27 @@ class MigrationGUI(QMainWindow):
         log_widget.moveCursor(QTextCursor.MoveOperation.End)
     
     def clear_log(self):
-        self.log_controls['log_output'].clear()
-        if hasattr(self, 'live_timer') and self.live_timer.isActive():
-            self.live_timer.stop()
-        if self.worker:
+        # Stoppe Timer ZUERST, bevor das Log geleert wird
+        if hasattr(self, 'live_timer'):
+            if self.live_timer and self.live_timer.isActive():
+                self.live_timer.stop()
+            # Timer komplett löschen
+            self.live_timer = None
+        
+        # Worker stoppen
+        if hasattr(self, 'worker') and self.worker:
+            if self.worker.isRunning():
+                self.worker.terminate()
+                self.worker.wait()
             self.worker = None
+        
+        # Jetzt Log leeren
+        self.log_controls['log_output'].clear()
+        self.log_controls['log_output'].setPlainText("")
+        
+        # Progress Bar zurücksetzen
+        if 'progress' in self.step_controls:
+            self.step_controls['progress'].setValue(0)
     
     def export_debug_logs(self):
         save_debug_logs(self, self.work_path, self.log)
@@ -389,13 +405,17 @@ class MigrationGUI(QMainWindow):
     def run_all_steps(self):
         step4_checked = self.db_controls['step4_checkbox'].isChecked()
         normalize_columns_checked = self.db_controls['normalize_columns_checkbox'].isChecked()
+        migrate_data_checked = self.db_controls['migrate_data_checkbox'].isChecked()
+        identity_always_checked = self.db_controls['identity_always_checkbox'].isChecked()
         
         step4_text = "4. Collations" if step4_checked else "4. Collations (übersprungen)"
         normalize_text = "\n   → Namen zu lowercase normalisieren" if normalize_columns_checked else ""
+        data_text = "\n   → Nur Struktur (keine Daten)" if not migrate_data_checked else ""
+        identity_text = "\n   → Manuelle IDs deaktivieren" if identity_always_checked else ""
         
         if ask_german_question(
             self, "Bestätigung",
-            f"Alle Migrationsschritte ausführen?\n\n1. Tabellen & Daten\n2. Verifizierung\n"
+            f"Alle Migrationsschritte ausführen?\n\n1. Tabellen & Daten{data_text}{identity_text}\n2. Verifizierung\n"
             f"3. Constraints & Indexes\n{step4_text}{normalize_text}"
         ):
             if not step4_checked:
@@ -407,6 +427,16 @@ class MigrationGUI(QMainWindow):
                 os.environ['NORMALIZE_COLUMNS'] = 'true'
             else:
                 os.environ.pop('NORMALIZE_COLUMNS', None)
+            
+            if migrate_data_checked:
+                os.environ['MIGRATE_DATA'] = 'true'
+            else:
+                os.environ['MIGRATE_DATA'] = 'false'
+            
+            if identity_always_checked:
+                os.environ['IDENTITY_ALWAYS'] = 'true'
+            else:
+                os.environ.pop('IDENTITY_ALWAYS', None)
             
             self.run_step("run_all.py")
     
