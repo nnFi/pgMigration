@@ -454,6 +454,95 @@ def migrate_table_data(mssql_conn, pg_conn, schema, table, columns_info, batch_s
     finally:
         mssql_cursor.close()
 
+def rename_quartz_tables_and_columns(pg_conn):
+    """
+    Benennt Quartz-Tabellen und Spalten dynamisch von Großbuchstaben zu Kleinbuchstaben um
+    Von: "QRTZ_*" (Großbuchstaben mit Anführungszeichen)
+    Zu:  qrtz_* (Kleinbuchstaben ohne Anführungszeichen)
+    """
+    cursor = pg_conn.cursor()
+    
+    try:
+        print_summary("")
+        print_summary("=" * 60)
+        print_summary("QUARTZ-TABELLEN UND SPALTEN UMBENENNEN")
+        print_summary("=" * 60)
+        
+        # Finde alle Tabellen die mit "QRTZ_" anfangen
+        cursor.execute("""
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = 'public' 
+            AND table_name LIKE 'QRTZ_%'
+            ORDER BY table_name
+        """)
+        
+        quartz_tables = [row[0] for row in cursor.fetchall()]
+        
+        if not quartz_tables:
+            print_summary("Keine Quartz-Tabellen mit Großbuchstaben gefunden.")
+            print_summary("(Möglicherweise bereits umbenannt oder nicht migriert)")
+            print_summary("")
+            return True
+        
+        print_detail(f"Gefundene Quartz-Tabellen: {', '.join(quartz_tables)}", level='INFO')
+        print_summary("")
+        
+        renamed_count = 0
+        
+        # Benennen Sie Tabellen und Spalten um
+        for old_table_name in quartz_tables:
+            new_table_name = old_table_name.lower()
+            
+            print_detail(f"Benennen um: {old_table_name} -> {new_table_name}", level='INFO')
+            
+            try:
+                # Benennen Sie Tabelle um
+                cursor.execute(f'ALTER TABLE "{old_table_name}" RENAME TO {new_table_name}')
+                
+                # Finde alle Spalten mit Großbuchstaben in dieser Tabelle
+                cursor.execute(f"""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_schema = 'public' 
+                    AND table_name = %s
+                    AND column_name = UPPER(column_name)
+                    ORDER BY column_name
+                """, (new_table_name,))
+                
+                columns_to_rename = [row[0] for row in cursor.fetchall()]
+                
+                # Benennen Sie Spalten um
+                for old_col_name in columns_to_rename:
+                    new_col_name = old_col_name.lower()
+                    try:
+                        cursor.execute(f'ALTER TABLE {new_table_name} RENAME COLUMN "{old_col_name}" TO {new_col_name}')
+                        print_detail(f"  Spalte: {old_col_name} -> {new_col_name}", level='DEBUG')
+                    except Exception as col_err:
+                        print_detail(f"  Warnung: Spalte '{old_col_name}' konnte nicht umbenannt werden: {col_err}", level='WARNING')
+                
+                renamed_count += 1
+                
+            except Exception as table_err:
+                print_detail(f"Fehler beim Umbenennen von {old_table_name}: {table_err}", level='ERROR')
+        
+        # Commit der Änderungen
+        pg_conn.commit()
+        
+        print_summary("")
+        print_summary(f"Quartz-Tabellen umbenannt: {renamed_count}")
+        print_summary("")
+        
+        return True
+        
+    except Exception as e:
+        print_detail(f"Fehler bei Quartz-Umbenennung: {e}", level='ERROR')
+        import traceback
+        print_detail(traceback.format_exc(), level='ERROR')
+        return False
+    finally:
+        cursor.close()
+
 def main():
     """Hauptfunktion"""
     print_summary("=" * 60)
@@ -531,6 +620,10 @@ def main():
                 print_summary(f"  - {table}")
         print_summary(f"Dauer: {duration:.2f} Sekunden")
         print_summary("")
+        
+        # Quartz-Tabellen und Spalten umbenennen
+        print_detail("Starten Sie Quartz-Umbenennung...", level='INFO')
+        rename_quartz_tables_and_columns(pg_conn)
         
         # Merke ob Fehler aufgetreten sind
         has_errors = len(failed_tables) > 0

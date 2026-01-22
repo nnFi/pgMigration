@@ -183,7 +183,13 @@ def get_mssql_columns(mssql_conn, schema, table):
     cursor.execute(query, (schema, table))
     columns = {}
     for row in cursor.fetchall():
-        columns[row.COLUMN_NAME] = {
+        col_name = row.COLUMN_NAME
+        
+        # Für Quartz-Tabellen, konvertiere Spaltennamen zu Kleinbuchstaben
+        if table.upper().startswith('QRTZ_'):
+            col_name = col_name.lower()
+        
+        columns[col_name] = {
             'data_type': row.DATA_TYPE,
             'max_length': row.CHARACTER_MAXIMUM_LENGTH,
             'precision': row.NUMERIC_PRECISION,
@@ -201,6 +207,10 @@ def get_postgres_columns(pg_conn, schema, table):
     pg_schema = map_schema_name(schema)
     normalized_schema = normalize_name(pg_schema)
     normalized_table = normalize_name(table)
+    
+    # Für Quartz-Tabellen, verwende die kleingeschriebene Version
+    if table.upper().startswith('QRTZ_'):
+        normalized_table = table.lower()
     
     query = """
         SELECT 
@@ -244,6 +254,10 @@ def get_postgres_row_count(pg_conn, schema, table):
     normalized_schema = normalize_name(pg_schema)
     normalized_table = normalize_name(table)
     
+    # Für Quartz-Tabellen, verwende die kleingeschriebene Version
+    if table.upper().startswith('QRTZ_'):
+        normalized_table = table.lower()
+    
     # SQL mit Quotes
     query = f'SELECT COUNT(*) FROM "{normalized_schema}"."{normalized_table}"'
     
@@ -270,6 +284,13 @@ def check_table_exists(pg_conn, schema, table):
     """
     cursor.execute(query, (normalized_schema, normalized_table))
     exists = cursor.fetchone()[0]
+    
+    # Wenn nicht gefunden und es eine Quartz-Tabelle ist, prüfe auch kleingeschriebene Version
+    if not exists and table.upper().startswith('QRTZ_'):
+        lowercase_table = table.lower()
+        cursor.execute(query, (normalized_schema, lowercase_table))
+        exists = cursor.fetchone()[0]
+    
     cursor.close()
     return exists
 
