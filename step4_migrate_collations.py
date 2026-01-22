@@ -97,9 +97,18 @@ PG_PASSWORD = os.getenv('PG_PASSWORD')
 # Optionen - keine mehr nötig
 
 def normalize_name(name):
-    """Normalisiere Namen: Ersetze - durch _"""
-    # Ersetze - durch _
-    return name.replace('-', '_')
+    """Normalisiere Namen: Ersetze - durch _ und konvertiere zu lowercase wenn NORMALIZE_COLUMNS aktiviert"""
+    # Prüfe ob Normalisierung aktiviert ist
+    normalize_enabled = os.getenv('NORMALIZE_COLUMNS', '').lower() == 'true'
+    
+    normalized = name.replace('-', '_')
+    
+    if normalize_enabled:
+        # Wenn Normalisierung aktiv, sind Tabellen und Spalten lowercase in PostgreSQL
+        return normalized.lower()
+    else:
+        # Ohne Normalisierung: Case beibehalten
+        return normalized
 
 def connect_mssql():
     """Verbindung zu MSSQL herstellen"""
@@ -232,8 +241,24 @@ def alter_column_collation(pg_conn, col_info, pg_collation):
     table_key = f"{schema}.{table}"
     table_mapping = column_mapping.get(table_key, {})
     
+    # Prüfe ob Normalisierung aktiviert ist
+    normalize_enabled = os.getenv('NORMALIZE_COLUMNS', '').lower() == 'true'
+    
     # Mappe Spaltennamen (gekürzte Namen)
-    pg_column = table_mapping.get(column, column)
+    pg_column = column
+    if normalize_enabled:
+        # Case-insensitive Suche im Mapping
+        for mapping_key in table_mapping.keys():
+            if mapping_key.lower() == column.lower():
+                pg_column = table_mapping[mapping_key]
+                break
+    else:
+        # Normaler case-sensitive Lookup
+        pg_column = table_mapping.get(column, column)
+    
+    # Spalte zu lowercase wenn Normalisierung aktiv
+    if normalize_enabled:
+        pg_column = pg_column.lower()
     
     # Normalisiere Namen (NICHT die Collation - die hat eigene Naming-Konventionen)
     norm_schema = normalize_name(pg_schema)

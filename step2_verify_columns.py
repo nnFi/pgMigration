@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from datetime import datetime
 import sys
 import json
+import re
 
 # Logging Setup
 class Logger:
@@ -93,9 +94,18 @@ PG_PASSWORD = os.getenv('PG_PASSWORD')
 # Optionen - keine mehr nötig
 
 def normalize_name(name):
-    """Normalisiere Namen: Ersetze - durch _"""
-    # Ersetze - durch _
-    return name.replace('-', '_')
+    """Normalisiere Namen: Ersetze - durch _ und konvertiere zu lowercase wenn NORMALIZE_COLUMNS aktiviert"""
+    # Prüfe ob Normalisierung aktiviert war (dann sind Tabellen lowercase in PostgreSQL)
+    normalize_enabled = os.getenv('NORMALIZE_COLUMNS', '').lower() == 'true'
+    
+    normalized = name.replace('-', '_')
+    
+    if normalize_enabled:
+        # Wenn Normalisierung aktiv war, sind Tabellen lowercase in PostgreSQL
+        return normalized.lower()
+    else:
+        # Ohne Normalisierung: Case beibehalten
+        return normalized
 
 def connect_mssql():
     """Verbindung zu MSSQL herstellen"""
@@ -182,12 +192,12 @@ def get_mssql_columns(mssql_conn, schema, table):
     """
     cursor.execute(query, (schema, table))
     columns = {}
+    
     for row in cursor.fetchall():
         col_name = row.COLUMN_NAME
         
-        # Für Quartz-Tabellen, konvertiere Spaltennamen zu Kleinbuchstaben
-        if table.upper().startswith('QRTZ_'):
-            col_name = col_name.lower()
+        # Spalten sind in PostgreSQL IMMER lowercase (werden während CREATE TABLE konvertiert)
+        col_name = col_name.lower()
         
         columns[col_name] = {
             'data_type': row.DATA_TYPE,
@@ -208,10 +218,6 @@ def get_postgres_columns(pg_conn, schema, table):
     normalized_schema = normalize_name(pg_schema)
     normalized_table = normalize_name(table)
     
-    # Für Quartz-Tabellen, verwende die kleingeschriebene Version
-    if table.upper().startswith('QRTZ_'):
-        normalized_table = table.lower()
-    
     query = """
         SELECT 
             column_name,
@@ -227,7 +233,12 @@ def get_postgres_columns(pg_conn, schema, table):
     cursor.execute(query, (normalized_schema, normalized_table))
     columns = {}
     for row in cursor.fetchall():
-        columns[row[0]] = {
+        col_name = row[0]
+        
+        # Wenn Spalten-Normalisierung aktiviert ist, behalte die normalisierten Namen
+        # (Diese sollten bereits in PostgreSQL klein geschrieben sein)
+        
+        columns[col_name] = {
             'data_type': row[1],
             'max_length': row[2],
             'precision': row[3],
@@ -253,10 +264,6 @@ def get_postgres_row_count(pg_conn, schema, table):
     pg_schema = map_schema_name(schema)
     normalized_schema = normalize_name(pg_schema)
     normalized_table = normalize_name(table)
-    
-    # Für Quartz-Tabellen, verwende die kleingeschriebene Version
-    if table.upper().startswith('QRTZ_'):
-        normalized_table = table.lower()
     
     # SQL mit Quotes
     query = f'SELECT COUNT(*) FROM "{normalized_schema}"."{normalized_table}"'
@@ -333,10 +340,26 @@ def verify_table(mssql_conn, pg_conn, schema, table):
     # Prüfe jede Spalte
     missing_cols = []
     for col_name, col_info in mssql_cols.items():
-        # Berücksichtige Mapping (gekürzte Namen)
-        mapped_name = table_mapping.get(col_name, col_name)
-        # Normalisiere Namen wenn lowercase aktiv
-        pg_col_name = normalize_name(mapped_name)
+        # col_name ist bereits lowercase (aus get_mssql_columns)
+        # Aber das Mapping hat Original-Namen (mit CamelCase) als Keys
+        # Wir müssen das Mapping mit Original-Namen durchsuchen
+        
+        # Finde Original-Namen im Mapping (case-insensitive Suche)
+        original_col_name = None
+        for mapping_key in table_mapping.keys():
+            if mapping_key.lower() == col_name:
+                original_col_name = mapping_key
+                break
+        
+        # Wenn Mapping gefunden, nutze den gekürzten Namen
+        if original_col_name and original_col_name in table_mapping:
+            mapped_name = table_mapping[original_col_name]
+            # Konvertiere gekürzten Namen auch zu lowercase
+            pg_col_name = normalize_name(mapped_name.lower())
+        else:
+            # Kein Mapping, nutze col_name direkt (bereits lowercase)
+            pg_col_name = normalize_name(col_name)
+        
         if pg_col_name not in pg_cols:
             missing_cols.append(col_name)
     

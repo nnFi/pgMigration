@@ -95,9 +95,18 @@ PG_PASSWORD = os.getenv('PG_PASSWORD')
 # Optionen - keine mehr nötig
 
 def normalize_name(name):
-    """Normalisiere Namen: Ersetze - durch _"""
-    # Ersetze - durch _
-    return name.replace('-', '_')
+    """Normalisiere Namen: Ersetze - durch _ und konvertiere zu lowercase wenn NORMALIZE_COLUMNS aktiviert"""
+    # Prüfe ob Normalisierung aktiviert ist
+    normalize_enabled = os.getenv('NORMALIZE_COLUMNS', '').lower() == 'true'
+    
+    normalized = name.replace('-', '_')
+    
+    if normalize_enabled:
+        # Wenn Normalisierung aktiv, sind Tabellen und Spalten lowercase in PostgreSQL
+        return normalized.lower()
+    else:
+        # Ohne Normalisierung: Case beibehalten
+        return normalized
 
 def connect_mssql():
     """Verbindung zu MSSQL herstellen"""
@@ -395,8 +404,27 @@ def add_filtered_index(pg_conn, idx):
     table_key = f"{schema}.{table}"
     table_mapping = column_mapping.get(table_key, {})
     
+    # Prüfe ob Normalisierung aktiviert ist
+    normalize_enabled = os.getenv('NORMALIZE_COLUMNS', '').lower() == 'true'
+    
     # Mappe Spaltennamen (gekürzte Namen)
-    pg_columns = [table_mapping.get(col, col) for col in idx['columns']]
+    pg_columns = []
+    for col in idx['columns']:
+        mapped_col = col
+        if normalize_enabled:
+            # Case-insensitive Suche im Mapping
+            for mapping_key in table_mapping.keys():
+                if mapping_key.lower() == col.lower():
+                    mapped_col = table_mapping[mapping_key]
+                    break
+        else:
+            # Normaler case-sensitive Lookup
+            mapped_col = table_mapping.get(col, col)
+        pg_columns.append(mapped_col)
+    
+    # Spalten zu lowercase wenn Normalisierung aktiv
+    if normalize_enabled:
+        pg_columns = [col.lower() for col in pg_columns]
     
     # Normalisiere Namen
     norm_schema = normalize_name(pg_schema)
@@ -408,10 +436,27 @@ def add_filtered_index(pg_conn, idx):
     where_clause = idx['where_clause']
     # Entferne eckige Klammern um Spaltennamen
     where_clause = where_clause.replace('[', '"').replace(']', '"')
-    # Mappe Spaltennamen in WHERE Klausel
-    for orig_col, pg_col in table_mapping.items():
-        norm_pg_col = normalize_name(pg_col)
-        where_clause = where_clause.replace(f'"{orig_col}"', f'"{norm_pg_col}"')
+    
+    # Ersetze Spaltennamen in WHERE Klausel
+    if normalize_enabled:
+        # Bei aktivierter Normalisierung: Alle Spaltennamen zu lowercase
+        # Regex um Spaltennamen in Anführungszeichen zu finden und zu lowercase zu konvertieren
+        import re
+        def lowercase_column(match):
+            return f'"{match.group(1).lower()}"'
+        where_clause = re.sub(r'"([^"]+)"', lowercase_column, where_clause)
+    
+    # Zusätzlich: Mappe gekürzte Spaltennamen
+    for orig_col in table_mapping.keys():
+        mapped_col = table_mapping[orig_col]
+        if normalize_enabled:
+            norm_orig = orig_col.lower()
+            norm_mapped = mapped_col.lower()
+        else:
+            norm_orig = orig_col
+            norm_mapped = mapped_col
+        norm_mapped = normalize_name(norm_mapped)
+        where_clause = where_clause.replace(f'"{norm_orig}"', f'"{norm_mapped}"')
     
     unique_keyword = 'UNIQUE' if idx['is_unique'] else ''
     
@@ -450,7 +495,22 @@ def add_foreign_key(pg_conn, fk):
     table_mapping = column_mapping.get(table_key, {})
     
     # Mappe Spaltennamen (gekürzte Namen)
-    pg_columns = [table_mapping.get(col, col) for col in fk['columns']]
+    # Bei aktivierter Normalisierung: case-insensitive Mapping-Lookup
+    normalize_enabled = os.getenv('NORMALIZE_COLUMNS', '').lower() == 'true'
+    
+    pg_columns = []
+    for col in fk['columns']:
+        mapped_col = col
+        if normalize_enabled:
+            # Case-insensitive Suche im Mapping
+            for mapping_key in table_mapping.keys():
+                if mapping_key.lower() == col.lower():
+                    mapped_col = table_mapping[mapping_key]
+                    break
+        else:
+            # Normaler case-sensitive Lookup
+            mapped_col = table_mapping.get(col, col)
+        pg_columns.append(mapped_col)
     
     ref_schema = fk['referenced_schema']
     pg_ref_schema = map_schema_name(ref_schema)
@@ -461,9 +521,26 @@ def add_foreign_key(pg_conn, fk):
     ref_table_mapping = column_mapping.get(ref_table_key, {})
     
     # Mappe referenzierte Spaltennamen (gekürzte Namen)
-    pg_ref_columns = [ref_table_mapping.get(col, col) for col in fk['referenced_columns']]
+    pg_ref_columns = []
+    for col in fk['referenced_columns']:
+        mapped_col = col
+        if normalize_enabled:
+            # Case-insensitive Suche im Mapping
+            for mapping_key in ref_table_mapping.keys():
+                if mapping_key.lower() == col.lower():
+                    mapped_col = ref_table_mapping[mapping_key]
+                    break
+        else:
+            # Normaler case-sensitive Lookup
+            mapped_col = ref_table_mapping.get(col, col)
+        pg_ref_columns.append(mapped_col)
     
-    # Normalisiere Namen
+    # Spalten nur zu lowercase wenn Normalisierung aktiv
+    if normalize_enabled:
+        pg_columns = [col.lower() for col in pg_columns]
+        pg_ref_columns = [col.lower() for col in pg_ref_columns]
+    
+    # Normalisiere Namen (Bindestriche ersetzen, ggf. weitere lowercase wenn NORMALIZE_COLUMNS)
     norm_schema = normalize_name(pg_schema)
     norm_table = normalize_name(table)
     norm_constraint = normalize_name(constraint_name)

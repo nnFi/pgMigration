@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from datetime import datetime
 import sys
 import json
+import re
 from pathlib import Path
 from type_mappings_manager import load_type_mappings_with_fallback
 
@@ -454,89 +455,153 @@ def migrate_table_data(mssql_conn, pg_conn, schema, table, columns_info, batch_s
     finally:
         mssql_cursor.close()
 
-def rename_quartz_tables_and_columns(pg_conn):
+def normalize_column_names(pg_conn):
     """
-    Benennt Quartz-Tabellen und Spalten dynamisch von Großbuchstaben zu Kleinbuchstaben um
-    Von: "QRTZ_*" (Großbuchstaben mit Anführungszeichen)
-    Zu:  qrtz_* (Kleinbuchstaben ohne Anführungszeichen)
+    Normalisiert alle Spaltennamen zu lowercase/snake_case
+    Konvertiert CamelCase Spalten um sie mit Hibernate kompatibel zu machen
+    z.B. firstName → first_name
     """
     cursor = pg_conn.cursor()
+    
+    # Prüfe ob Spalten-Normalisierung aktiviert ist
+    normalize = os.getenv('NORMALIZE_COLUMNS', 'false').lower() == 'true'
+    if not normalize:
+        print_detail("Spalten-Normalisierung übersprungen (NORMALIZE_COLUMNS=false)", level='DEBUG')
+        return True
     
     try:
         print_summary("")
         print_summary("=" * 60)
-        print_summary("QUARTZ-TABELLEN UND SPALTEN UMBENENNEN")
+        print_summary("SPALTEN NORMALISIEREN (CamelCase → lowercase)")
         print_summary("=" * 60)
         
-        # Finde alle Tabellen die mit "QRTZ_" anfangen
+        # Finde alle Tabellen im public Schema
         cursor.execute("""
             SELECT table_name 
             FROM information_schema.tables 
-            WHERE table_schema = 'public' 
-            AND table_name LIKE 'QRTZ_%'
+            WHERE table_schema = 'public'
+            AND table_type = 'BASE TABLE'
             ORDER BY table_name
         """)
         
-        quartz_tables = [row[0] for row in cursor.fetchall()]
+        tables = [row[0] for row in cursor.fetchall()]
         
-        if not quartz_tables:
-            print_summary("Keine Quartz-Tabellen mit Großbuchstaben gefunden.")
-            print_summary("(Möglicherweise bereits umbenannt oder nicht migriert)")
-            print_summary("")
+        if not tables:
+            print_summary("Keine Tabellen gefunden.")
             return True
         
-        print_detail(f"Gefundene Quartz-Tabellen: {', '.join(quartz_tables)}", level='INFO')
-        print_summary("")
+        total_renamed = 0
         
-        renamed_count = 0
-        
-        # Benennen Sie Tabellen und Spalten um
-        for old_table_name in quartz_tables:
-            new_table_name = old_table_name.lower()
+        for table_name in tables:
+            # Finde alle Spalten mit Großbuchstaben
+            cursor.execute(f"""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_schema = 'public' 
+                AND table_name = %s
+                AND column_name ~ '[A-Z]'
+                ORDER BY column_name
+            """, (table_name,))
             
-            print_detail(f"Benennen um: {old_table_name} -> {new_table_name}", level='INFO')
+            columns_to_rename = [row[0] for row in cursor.fetchall()]
             
-            try:
-                # Benennen Sie Tabelle um
-                cursor.execute(f'ALTER TABLE "{old_table_name}" RENAME TO {new_table_name}')
+            if not columns_to_rename:
+                continue
+            
+            print_detail(f"Normalisiere Tabelle: {table_name}", level='INFO')
+            
+            for old_col_name in columns_to_rename:
+                # Konvertiere nur zu Kleinbuchstaben (keine Unterstriche hinzufügen)
+                new_col_name = old_col_name.lower()
                 
-                # Finde alle Spalten mit Großbuchstaben in dieser Tabelle
-                cursor.execute(f"""
-                    SELECT column_name 
-                    FROM information_schema.columns 
-                    WHERE table_schema = 'public' 
-                    AND table_name = %s
-                    AND column_name = UPPER(column_name)
-                    ORDER BY column_name
-                """, (new_table_name,))
+                if new_col_name == old_col_name:
+                    continue
                 
-                columns_to_rename = [row[0] for row in cursor.fetchall()]
-                
-                # Benennen Sie Spalten um
-                for old_col_name in columns_to_rename:
-                    new_col_name = old_col_name.lower()
-                    try:
-                        cursor.execute(f'ALTER TABLE {new_table_name} RENAME COLUMN "{old_col_name}" TO {new_col_name}')
-                        print_detail(f"  Spalte: {old_col_name} -> {new_col_name}", level='DEBUG')
-                    except Exception as col_err:
-                        print_detail(f"  Warnung: Spalte '{old_col_name}' konnte nicht umbenannt werden: {col_err}", level='WARNING')
-                
-                renamed_count += 1
-                
-            except Exception as table_err:
-                print_detail(f"Fehler beim Umbenennen von {old_table_name}: {table_err}", level='ERROR')
+                try:
+                    cursor.execute(f'ALTER TABLE "{table_name}" RENAME COLUMN "{old_col_name}" TO "{new_col_name}"')
+                    print_detail(f"  {old_col_name} → {new_col_name}", level='DEBUG')
+                    total_renamed += 1
+                except Exception as col_err:
+                    print_detail(f"  Warnung: '{old_col_name}' konnte nicht umbenannt werden: {col_err}", level='WARNING')
         
         # Commit der Änderungen
         pg_conn.commit()
         
         print_summary("")
-        print_summary(f"Quartz-Tabellen umbenannt: {renamed_count}")
+        print_summary(f"Spalten normalisiert: {total_renamed}")
         print_summary("")
         
         return True
         
     except Exception as e:
-        print_detail(f"Fehler bei Quartz-Umbenennung: {e}", level='ERROR')
+        print_detail(f"Fehler bei Spalten-Normalisierung: {e}", level='ERROR')
+        import traceback
+        print_detail(traceback.format_exc(), level='ERROR')
+        return False
+    finally:
+        cursor.close()
+
+def normalize_table_names(pg_conn):
+    """
+    Normalisiert alle Tabellennamen zu lowercase
+    """
+    cursor = pg_conn.cursor()
+    
+    # Prüfe ob Normalisierung aktiviert ist
+    normalize = os.getenv('NORMALIZE_COLUMNS', 'false').lower() == 'true'
+    if not normalize:
+        print_detail("Tabellen-Normalisierung übersprungen (NORMALIZE_COLUMNS=false)", level='DEBUG')
+        return True
+    
+    try:
+        print_summary("")
+        print_summary("=" * 60)
+        print_summary("TABELLENNAMEN NORMALISIEREN")
+        print_summary("=" * 60)
+        
+        # Finde alle Tabellen mit Großbuchstaben
+        cursor.execute("""
+            SELECT table_schema, table_name 
+            FROM information_schema.tables 
+            WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
+            AND table_type = 'BASE TABLE'
+            AND table_name ~ '[A-Z]'
+            ORDER BY table_schema, table_name
+        """)
+        
+        tables_to_rename = cursor.fetchall()
+        
+        if not tables_to_rename:
+            print_summary("Keine Tabellennamen mit Großbuchstaben gefunden.")
+            print_summary("")
+            return True
+        
+        renamed_count = 0
+        
+        for schema, table_name in tables_to_rename:
+            new_table_name = table_name.lower()
+            
+            if new_table_name == table_name:
+                continue
+            
+            try:
+                print_detail(f"Benennen um: {schema}.{table_name} -> {schema}.{new_table_name}", level='INFO')
+                cursor.execute(f'ALTER TABLE "{schema}"."{table_name}" RENAME TO "{new_table_name}"')
+                renamed_count += 1
+            except Exception as err:
+                print_detail(f"  Warnung: Tabelle '{schema}.{table_name}' konnte nicht umbenannt werden: {err}", level='WARNING')
+        
+        # Commit der Änderungen
+        pg_conn.commit()
+        
+        print_summary("")
+        print_summary(f"Tabellennamen normalisiert: {renamed_count}")
+        print_summary("")
+        
+        return True
+        
+    except Exception as e:
+        print_detail(f"Fehler bei Tabellen-Normalisierung: {e}", level='ERROR')
         import traceback
         print_detail(traceback.format_exc(), level='ERROR')
         return False
@@ -621,9 +686,13 @@ def main():
         print_summary(f"Dauer: {duration:.2f} Sekunden")
         print_summary("")
         
-        # Quartz-Tabellen und Spalten umbenennen
-        print_detail("Starten Sie Quartz-Umbenennung...", level='INFO')
-        rename_quartz_tables_and_columns(pg_conn)
+        # Tabellennamen normalisieren (wenn NORMALIZE_COLUMNS aktiviert)
+        print_detail("Starten Sie Tabellen-Normalisierung...", level='INFO')
+        normalize_table_names(pg_conn)
+        
+        # Spalten normalisieren (wenn NORMALIZE_COLUMNS aktiviert)
+        print_detail("Starten Sie Spalten-Normalisierung...", level='INFO')
+        normalize_column_names(pg_conn)
         
         # Merke ob Fehler aufgetreten sind
         has_errors = len(failed_tables) > 0

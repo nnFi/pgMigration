@@ -126,6 +126,12 @@ def build_database_section():
     step4_checkbox.setToolTip("Unchecked: Collations werden übersprungen\nChecked: Collations werden bei Migration und Flyway-Konvertierung ausgeführt")
     options_layout.addWidget(step4_checkbox)
     
+    # Checkbox für Namen-Normalisierung (lowercase)
+    normalize_columns_checkbox = QCheckBox("Namen zu lowercase normalisieren")
+    normalize_columns_checkbox.setChecked(False)
+    normalize_columns_checkbox.setToolTip("Konvertiert alle Tabellen- und Spaltennamen zu Kleinbuchstaben\n(z.B. firstName → firstname, MyTable → mytable)\nNötig für Hibernate-Kompatibilität mit PostgreSQL")
+    options_layout.addWidget(normalize_columns_checkbox)
+    
     options_layout.addStretch()
     db_layout.addLayout(options_layout)
     
@@ -167,6 +173,7 @@ def build_database_section():
         'migrate_data_checkbox': migrate_data_checkbox,
         'identity_always_checkbox': identity_always_checkbox,
         'step4_checkbox': step4_checkbox,
+        'normalize_columns_checkbox': normalize_columns_checkbox,
         'save_btn': save_btn,
         'load_btn': load_btn,
         'import_btn': import_btn,

@@ -388,17 +388,26 @@ class MigrationGUI(QMainWindow):
     
     def run_all_steps(self):
         step4_checked = self.db_controls['step4_checkbox'].isChecked()
+        normalize_columns_checked = self.db_controls['normalize_columns_checkbox'].isChecked()
+        
         step4_text = "4. Collations" if step4_checked else "4. Collations (übersprungen)"
+        normalize_text = "\n   → Namen zu lowercase normalisieren" if normalize_columns_checked else ""
         
         if ask_german_question(
             self, "Bestätigung",
             f"Alle Migrationsschritte ausführen?\n\n1. Tabellen & Daten\n2. Verifizierung\n"
-            f"3. Constraints & Indexes\n{step4_text}"
+            f"3. Constraints & Indexes\n{step4_text}{normalize_text}"
         ):
             if not step4_checked:
                 os.environ['SKIP_STEP4'] = 'true'
             else:
                 os.environ.pop('SKIP_STEP4', None)
+            
+            if normalize_columns_checked:
+                os.environ['NORMALIZE_COLUMNS'] = 'true'
+            else:
+                os.environ.pop('NORMALIZE_COLUMNS', None)
+            
             self.run_step("run_all.py")
     
     def on_step_finished(self, success, message):
